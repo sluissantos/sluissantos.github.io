@@ -443,6 +443,7 @@ function buildReport() {
   const delivered = dl.filter(d => d.delivered).length;
   const viewed = dl.filter(d => d.viewed).length;
   const lost = dl.filter(d => d.state === 'expired' || d.state === 'failed').length;
+  const replaced = dl.filter(d => d.state === 'superseded').length;
   const L = [];
   L.push('TAG MESSAGING REPORT');
   L.push('Generated on: ' + stampFull(Date.now()));
@@ -454,6 +455,7 @@ function buildReport() {
   L.push('Downlinks delivered:      ' + delivered + pct(delivered, dl.length));
   L.push('Downlinks viewed:         ' + viewed + pct(viewed, dl.length));
   L.push('Downlinks expired/failed: ' + lost + pct(lost, dl.length));
+  L.push('Downlinks replaced:       ' + replaced + pct(replaced, dl.length));
   L.push('');
   L.push('PER TAG');
   L.push('Tag           Status   Downlinks  Delivered  Viewed');
