@@ -37,8 +37,8 @@
       <summary>Conexão</summary>
       <label>Broker <input id="host" value="8ee07f68d14341e282ad0f17e05ca521.s1.eu.hivemq.cloud"></label>
       <label>Porta WebSocket (TLS) <input id="port" type="number" value="8884"></label>
-      <label>Usuário <input id="user" autocomplete="username"></label>
-      <label>Senha <input id="pass" type="password" autocomplete="current-password"></label>
+      <label>Usuário <input id="user" autocomplete="username" value="username"></label>
+      <label>Senha <input id="pass" type="password" autocomplete="current-password" value="password"></label>
       <label>Tópico <input id="topic" value="aura/central/msg"></label>
     </details>
     <div class="row">
@@ -63,7 +63,7 @@ const $ = id => document.getElementById(id);
 const fields = ['host', 'port', 'user', 'pass', 'topic'];
 let client = null;
 
-// Configuração fica só neste navegador (o repositório é público).
+// Valores padrão no HTML (broker de teste); o que for editado fica salvo neste navegador.
 try {
   const saved = JSON.parse(localStorage.getItem('mqttCfg') || '{}');
   fields.forEach(f => { if (saved[f]) $(f).value = saved[f]; });
