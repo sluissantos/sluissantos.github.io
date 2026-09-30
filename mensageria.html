@@ -1,0 +1,500 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Mensageria de Tags</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<style>
+  :root {
+    --bg:#12161a; --panel:#1a2025; --line:#262e35; --line2:#303a42; --line3:#3a444d;
+    --fg:#e6eaed; --muted:#9aa6b0; --accent:#f5a524; --accent-bg:rgba(245,165,36,.10);
+    --ok-bg:rgba(52,199,120,.18); --ok-fg:#7be8ab; --bad-bg:rgba(255,92,92,.18); --bad-fg:#ff9d9d;
+    --sos:#c93c41; --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing:border-box; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--sans); font-size:14px; display:flex; flex-direction:column; }
+  button { font-family:inherit; cursor:pointer; }
+  button:focus-visible, input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .mono { font-family:var(--mono); }
+  .muted { color:var(--muted); }
+
+  header { flex-shrink:0; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; padding:16px; border-bottom:1px solid var(--line); }
+  header .title { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 16px; }
+  h1 { margin:0; font-size:22px; font-weight:600; letter-spacing:.01em; }
+  header .sub { font-size:13px; color:var(--muted); }
+  header .type { font-family:var(--mono); font-size:12px; color:var(--muted); }
+  header .right { display:flex; flex-wrap:wrap; align-items:center; gap:8px 20px; }
+  .conn { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); }
+  .conn i { width:10px; height:10px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+  .conn.ok { color:var(--ok-fg); } .conn.ok i { background:var(--ok-fg); }
+  .conn.err { color:var(--bad-fg); } .conn.err i { background:var(--bad-fg); }
+
+  main { flex:1; min-height:0; padding:16px; display:grid; gap:20px; grid-template-columns:minmax(0,1fr); align-content:start; }
+  @media (min-width:1100px) {
+    main { padding:24px; grid-template-columns:300px minmax(0,1.4fr) minmax(0,1fr); align-content:stretch; }
+    .scroll { min-height:0; flex:1; }
+    section { min-height:0; }
+  }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; display:flex; flex-direction:column; gap:12px; min-width:0; }
+  h2 { margin:0; font-size:15px; font-weight:600; }
+  .headrow { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:4px 12px; }
+  .headrow small { font-size:12px; color:var(--muted); }
+
+  .scroll { overflow-y:auto; max-height:420px; scrollbar-color:#3a444d #1a2025; display:flex; flex-direction:column; }
+  .tablewrap { overflow-x:auto; min-width:0; display:flex; flex-direction:column; min-height:0; flex:1; }
+  .tablewrap > * { min-width:var(--tw); }
+  .thead { display:grid; column-gap:12px; padding:0 8px 8px; border-bottom:1px solid var(--line2); font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .tr { display:grid; column-gap:12px; align-items:center; min-height:56px; padding:6px 8px; border-bottom:1px solid var(--line); font-size:13px; width:100%; }
+  button.tr { border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--fg); text-align:left; }
+  button.tr:hover { background:#242c33; }
+  .cols-down { grid-template-columns:64px 84px 36px minmax(0,1fr) 76px 76px; }
+  .cols-up { grid-template-columns:64px 84px 76px 60px minmax(0,1fr); column-gap:8px; }
+  .t { display:flex; flex-direction:column; }
+  .t b { font:400 12px var(--mono); }
+  .t small { font-size:11px; color:var(--muted); }
+  .cell-mono { font:400 12px var(--mono); }
+
+  .chip { display:flex; align-items:center; justify-content:center; gap:4px; height:28px; font-size:12px; font-weight:500; }
+  .chip.sq { width:52px; border-radius:6px; }
+  .chip.ok { background:var(--ok-bg); color:var(--ok-fg); }
+  .chip.bad { background:var(--bad-bg); color:var(--bad-fg); }
+  .chip.mov { width:76px; border-radius:14px; }
+  .chip.sos { width:60px; border-radius:4px; font-weight:600; border:1.5px solid rgba(123,232,171,.45); background:transparent; color:var(--ok-fg); }
+  .chip.sos.on { background:var(--sos); color:#fff; border-color:var(--sos); }
+  .bat { display:flex; align-items:center; gap:8px; }
+  .bat .bar { flex:1; height:8px; border-radius:4px; background:var(--line2); overflow:hidden; }
+  .bat .bar i { display:block; height:8px; background:#9fb0bd; }
+  .bat span { width:38px; text-align:right; font:400 12px var(--mono); }
+
+  .field { display:flex; flex-direction:column; gap:6px; }
+  .field > .lab, legend { font-size:12px; color:var(--muted); padding:0; }
+  fieldset { margin:0; padding:0; border:0; min-width:0; display:flex; flex-direction:column; gap:6px; }
+  legend { margin-bottom:6px; }
+  .fixed { display:flex; align-items:center; justify-content:space-between; height:40px; padding:0 12px; background:var(--bg); border:1px solid var(--line2); border-radius:6px; }
+  .fixed .mono { font-size:13px; color:var(--accent); }
+  .opt { display:flex; align-items:center; gap:10px; min-height:44px; padding:0 12px; border-radius:6px; cursor:pointer; border:1px solid var(--line2); background:transparent; }
+  .opt.on { border-color:var(--accent); background:var(--accent-bg); }
+  .opt input { margin:0; width:16px; height:16px; accent-color:var(--accent); }
+  .opt .grow { flex:1; min-width:0; }
+  .opt .addr { font:400 13px var(--mono); }
+  .opt .nx { font-size:12px; color:var(--muted); }
+  .opt .nx b { font:400 12px var(--mono); color:var(--fg); }
+  .empty { margin:8px 0 0; font-size:13px; color:var(--muted); line-height:1.4; }
+  .tagpick { display:flex; flex-direction:column; gap:4px; }
+  .send-wrap { display:flex; flex-direction:column; gap:8px; }
+  .send-wrap span { font-size:12px; color:var(--muted); }
+  .send { height:48px; border:0; border-radius:6px; background:var(--accent); color:var(--bg); font-size:15px; font-weight:600; }
+  .send:hover:not(:disabled) { background:#ffb936; }
+  .send:disabled { opacity:.4; cursor:default; }
+  .ghost { height:36px; padding:0 12px; border:1px solid var(--line3); border-radius:6px; background:transparent; color:var(--fg); font-size:13px; }
+  .ghost:hover { background:#2a333b; }
+
+  .overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:16px; z-index:10; }
+  .overlay[hidden] { display:none; }
+  .overlay .back { position:absolute; inset:0; border:0; background:rgba(8,10,12,.72); cursor:default; }
+  .dialog { position:relative; width:min(460px,100%); background:var(--panel); border:1px solid var(--line3); border-radius:10px; padding:20px; display:flex; flex-direction:column; gap:14px; box-shadow:0 24px 60px rgba(0,0,0,.5); }
+  .dialog h3 { margin:0; font-size:16px; font-weight:600; }
+  .dialog .when { font-size:12px; color:var(--muted); }
+  .dialog .top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+  .dialog .close { width:44px; height:44px; margin:-8px -8px 0 0; border:0; border-radius:6px; background:transparent; color:var(--fg); display:flex; align-items:center; justify-content:center; }
+  .dialog .close:hover { background:#2a333b; }
+  pre { margin:0; padding:16px; background:var(--bg); border:1px solid var(--line2); border-radius:6px; font:400 13px/1.6 var(--mono); color:#d7dde2; white-space:pre-wrap; overflow-wrap:anywhere; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title">
+    <h1>Mensageria de Tags</h1>
+    <span class="sub">Uplink: tag para servidor. Downlink: servidor para tag.</span>
+  </div>
+  <div class="right">
+    <span class="type">message type: data</span>
+    <span style="display:flex;gap:8px">
+      <button class="ghost" id="repTxt" type="button">Relatório .txt</button>
+      <button class="ghost" id="repPdf" type="button">Relatório PDF</button>
+    </span>
+    <span class="conn" id="conn" role="status"><i></i><span id="connText">Conectando ao broker...</span></span>
+  </div>
+</header>
+
+<main>
+  <section aria-labelledby="h-new">
+    <h2 id="h-new">Novo downlink</h2>
+
+    <div class="field">
+      <span class="lab">Tipo de mensagem</span>
+      <div class="fixed"><span>Mensagem</span><span class="mono">0xE4</span></div>
+    </div>
+
+    <fieldset>
+      <legend>Mensagem</legend>
+      <div id="msgOptions" style="display:flex;flex-direction:column;gap:6px"></div>
+    </fieldset>
+
+    <fieldset style="flex:1;min-height:0">
+      <legend>Destino</legend>
+      <label class="opt" id="allOpt">
+        <input type="checkbox" id="allBox" data-fk="all">
+        <span class="grow">Todas as tags</span>
+        <span class="nx">padrão</span>
+      </label>
+      <div class="scroll tagpick" id="tagRows" style="max-height:240px"></div>
+      <p class="empty" id="noTags" hidden>Nenhuma tag conhecida. As tags aparecem aqui quando enviam o primeiro uplink.</p>
+    </fieldset>
+
+    <div class="send-wrap">
+      <span id="targetSummary"></span>
+      <button class="send" id="send" type="button">Enviar downlink</button>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-down">
+    <div class="headrow">
+      <h2 id="h-down">Downlinks enviados</h2>
+      <small>servidor para tag · clique para ver o JSON</small>
+    </div>
+    <div class="tablewrap" style="--tw:560px">
+      <div class="thead cols-down"><span>Horário</span><span>Tag</span><span>ID</span><span>Mensagem</span><span>Entregue</span><span>Visualizada</span></div>
+      <div class="scroll" id="downlinks"></div>
+      <p class="empty" id="noDownlinks" style="margin:16px 8px">Nenhum downlink enviado ainda.</p>
+    </div>
+  </section>
+
+  <section aria-labelledby="h-up">
+    <div class="headrow">
+      <div style="display:flex;flex-direction:column;gap:2px">
+        <h2 id="h-up">Uplinks recebidos</h2>
+        <small>tag para servidor</small>
+      </div>
+      <button class="ghost" id="simUplink" type="button">Simular uplink</button>
+    </div>
+    <div class="tablewrap" style="--tw:420px">
+      <div class="thead cols-up"><span>Horário</span><span>Tag</span><span>Movimento</span><span>SOS</span><span>Bateria</span></div>
+      <div class="scroll" id="uplinks"></div>
+    </div>
+  </section>
+</main>
+
+<div class="overlay" id="popup" hidden>
+  <button class="back" id="popBack" type="button" aria-label="Fechar"></button>
+  <div class="dialog" role="dialog" aria-label="JSON do downlink">
+    <div class="top">
+      <div>
+        <h3>JSON do downlink</h3>
+        <span class="when" id="popWhen"></span>
+      </div>
+      <button class="close" id="popClose" type="button" aria-label="Fechar janela">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13"/></svg>
+      </button>
+    </div>
+    <pre id="popJson"></pre>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const MSGS = ['Apresente-se na portaria.', 'Saia imediatamente do galpão.', 'Encaminhe-se ao armazém 3.'];
+const pad = n => String(n).padStart(2, '0');
+const fmtTime = ts => { const d = new Date(ts); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); };
+const fmtDate = ts => { const d = new Date(ts); return pad(d.getDate()) + '/' + pad(d.getMonth() + 1); };
+const mkAddr = n => '1A2B3C' + pad(n.toString(16).toUpperCase());
+
+const ICON = {
+  ok:   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg>',
+  no:   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
+  move: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h11M9 4l4 4-4 4"/></svg>',
+  stop: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg>',
+  sos:  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5l6 10.5H2z"/><path d="M8 7v2.6M8 11.4v.1"/></svg>',
+};
+
+// Broker de teste: credenciais públicas de propósito (o mesmo do index.html).
+const CFG = {
+  url: 'wss://8ee07f68d14341e282ad0f17e05ca521.s1.eu.hivemq.cloud:8884/mqtt',
+  username: 'username',
+  password: 'password',
+};
+const TOPIC = {
+  downlink: 'aura/downlink',   // a página publica: {"addr","id","opcode","content"}
+  uplink:   'aura/uplink',     // a página recebe:  {"addr","mov","sos","bat"}
+  ack:      'aura/ack',        // a página recebe:  {"addr","id","status":"delivered"|"viewed"}
+  next:     'aura/state/next', // contador de ID por tag, retido: aura/state/next/<addr>
+};
+const clientId = 'web-' + Math.random().toString(16).slice(2, 10);
+
+const state = {
+  msgIdx: 0, sendAll: true, selected: {}, seq: 1, popup: null, online: false,
+  tags: [], downlinks: [], uplinks: [],
+  upTotal: 0, upSos: 0, upByTag: {}, since: Date.now(),
+};
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function stamp(ts) {
+  const t = el('span', 't');
+  t.append(el('b', '', fmtTime(ts)), el('small', '', fmtDate(ts)));
+  return t;
+}
+function chip(cls, iconHtml, text) {
+  const c = el('span', 'chip ' + cls);
+  c.innerHTML = iconHtml;
+  if (text) c.append(text);
+  return c;
+}
+
+function targets() {
+  return state.sendAll ? state.tags.map(t => t.addr) : state.tags.filter(t => state.selected[t.addr]).map(t => t.addr);
+}
+
+function render() {
+  const focusKey = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.fk;
+
+  // Mensagens
+  const mo = $('msgOptions'); mo.replaceChildren();
+  MSGS.forEach((label, i) => {
+    const l = el('label', 'opt' + (state.msgIdx === i ? ' on' : ''));
+    const r = document.createElement('input');
+    r.type = 'radio'; r.name = 'msg'; r.checked = state.msgIdx === i; r.dataset.fk = 'msg' + i;
+    r.onchange = () => { state.msgIdx = i; render(); };
+    l.append(r, el('span', 'grow', label));
+    mo.append(l);
+  });
+
+  // Destino
+  $('allBox').checked = state.sendAll;
+  $('allOpt').className = 'opt' + (state.sendAll ? ' on' : '');
+  const tr = $('tagRows'); tr.replaceChildren();
+  state.tags.forEach(t => {
+    const on = !state.sendAll && !!state.selected[t.addr];
+    const l = el('label', 'opt' + (on ? ' on' : ''));
+    const c = document.createElement('input');
+    c.type = 'checkbox'; c.checked = on; c.dataset.fk = 'tag' + t.addr;
+    c.onchange = () => toggleTag(t.addr);
+    const nx = el('span', 'nx', 'próx. ID ');
+    nx.append(el('b', '', String(t.next)));
+    l.append(c, el('span', 'grow addr', t.addr), nx);
+    tr.append(l);
+  });
+  $('noTags').hidden = state.tags.length > 0;
+  const n = targets().length;
+  $('targetSummary').textContent = state.sendAll
+    ? 'Destino: todas as tags (' + state.tags.length + ')'
+    : 'Destino: ' + n + (n === 1 ? ' tag selecionada' : ' tags selecionadas');
+  $('send').disabled = n === 0 || !state.online;
+  $('simUplink').disabled = !state.online;
+
+  // Downlinks
+  const dl = $('downlinks'); dl.replaceChildren();
+  state.downlinks.forEach(d => {
+    const b = el('button', 'tr cols-down'); b.type = 'button';
+    b.setAttribute('aria-label', 'Ver JSON do downlink'); b.dataset.fk = 'dl' + d.key;
+    b.onclick = () => { state.popup = d.key; render(); };
+    b.append(stamp(d.ts), el('span', 'cell-mono', d.addr), el('span', 'cell-mono', String(d.id)), el('span', '', d.content),
+      chip('sq ' + (d.delivered ? 'ok' : 'bad'), d.delivered ? ICON.ok : ICON.no),
+      chip('sq ' + (d.viewed ? 'ok' : 'bad'), d.viewed ? ICON.ok : ICON.no));
+    b.children[4].setAttribute('aria-label', d.delivered ? 'Entregue' : 'Não entregue');
+    b.children[5].setAttribute('aria-label', d.viewed ? 'Visualizada' : 'Não visualizada');
+    dl.append(b);
+  });
+  $('noDownlinks').hidden = state.downlinks.length > 0;
+
+  // Uplinks
+  const ul = $('uplinks'); ul.replaceChildren();
+  state.uplinks.forEach(u => {
+    const row = el('div', 'tr cols-up');
+    const mv = chip('mov ' + (u.mov ? 'ok' : 'bad'), u.mov ? ICON.move : ICON.stop, u.mov ? 'Movendo' : 'Parada');
+    mv.title = 'Movimento: ' + u.mov;
+    const so = chip('sos' + (u.sos ? ' on' : ''), u.sos ? ICON.sos : ICON.ok, u.sos ? 'SOS' : 'OK');
+    so.title = 'SOS: ' + u.sos;
+    const bat = el('span', 'bat');
+    const bar = el('span', 'bar'); const fill = document.createElement('i'); fill.style.width = u.bat + '%'; bar.append(fill);
+    bat.append(bar, el('span', '', u.bat + '%'));
+    row.append(stamp(u.ts), el('span', 'cell-mono', u.addr), mv, so, bat);
+    ul.append(row);
+  });
+
+  // Popup
+  const pop = state.popup ? state.downlinks.find(d => d.key === state.popup) : null;
+  $('popup').hidden = !pop;
+  if (pop) {
+    $('popWhen').textContent = 'Enviado em ' + fmtDate(pop.ts) + ' ' + fmtTime(pop.ts);
+    $('popJson').textContent = JSON.stringify({ addr: pop.addr, id: pop.id, opcode: pop.opcode, content: pop.content }, null, 2);
+  }
+
+  if (focusKey) { const f = document.querySelector('[data-fk="' + focusKey + '"]'); if (f) f.focus(); }
+}
+
+function toggleTag(addr) {
+  const sel = { ...state.selected };
+  if (sel[addr]) delete sel[addr]; else sel[addr] = true;
+  state.selected = sel;
+  state.sendAll = Object.keys(sel).length === 0;
+  render();
+}
+
+function ensureTag(addr) {
+  let t = state.tags.find(x => x.addr === addr);
+  if (!t) { t = { addr, next: 0 }; state.tags.push(t); }
+  return t;
+}
+
+function patchDown(addr, id, patch) {
+  const d = state.downlinks.find(x => x.addr === addr && x.id === id);
+  if (d) Object.assign(d, patch);
+}
+
+$('allBox').onchange = () => { state.sendAll = true; state.selected = {}; render(); };
+
+// ---- MQTT ----
+function setConn(text, cls) {
+  $('connText').textContent = text;
+  $('conn').className = 'conn ' + (cls || '');
+}
+
+const client = mqtt.connect(CFG.url, {
+  username: CFG.username, password: CFG.password, clientId, reconnectPeriod: 5000,
+});
+client.on('connect', () => {
+  state.online = true;
+  setConn('Conectado ao broker', 'ok');
+  client.subscribe([TOPIC.uplink, TOPIC.ack, TOPIC.next + '/+']);
+  render();
+});
+client.on('reconnect', () => { state.online = false; setConn('Reconectando ao broker...', 'err'); render(); });
+client.on('offline', () => { state.online = false; setConn('Sem conexão com o broker', 'err'); render(); });
+client.on('close', () => { state.online = false; render(); });
+client.on('error', err => { setConn('Erro: ' + err.message, 'err'); });
+
+client.on('message', (topic, payload) => {
+  let o;
+  try { o = JSON.parse(payload.toString()); } catch (e) { return; }
+  if (!o || typeof o !== 'object') return;
+  if (topic.startsWith(TOPIC.next + '/')) {
+    if (o.by === clientId) return;                       // eco do próprio envio
+    const n = Number(o.next);
+    if (Number.isInteger(n)) ensureTag(topic.slice(TOPIC.next.length + 1)).next = n & 255;
+  } else if (topic === TOPIC.uplink) {
+    const addr = String(o.addr || '').toUpperCase();
+    if (!addr) return;
+    ensureTag(addr);
+    state.upTotal++; if (o.sos) state.upSos++;
+    state.upByTag[addr] = (state.upByTag[addr] || 0) + 1;
+    const bat = Math.max(0, Math.min(100, Number(o.bat ?? o.battery) || 0));
+    state.uplinks = [{ ts: Date.now(), addr, mov: (o.mov ?? o.motion) ? 1 : 0, sos: o.sos ? 1 : 0, bat }, ...state.uplinks].slice(0, 200);
+  } else if (topic === TOPIC.ack) {
+    const addr = String(o.addr || '').toUpperCase();
+    const id = Number(o.id);
+    if (o.status === 'viewed') patchDown(addr, id, { delivered: true, viewed: true });
+    else if (o.status === 'delivered') patchDown(addr, id, { delivered: true });
+  }
+  render();
+});
+
+$('send').onclick = () => {
+  const list = targets();
+  if (!list.length || !state.online) return;
+  const ts = Date.now();
+  const created = list.map(addr => {
+    const t = state.tags.find(x => x.addr === addr);
+    const m = { key: 'd' + state.seq++, ts, addr, id: t.next, opcode: '0xE4', content: MSGS[state.msgIdx], delivered: false, viewed: false };
+    t.next = (t.next + 1) % 256;
+    client.publish(TOPIC.downlink, JSON.stringify({ addr: m.addr, id: m.id, opcode: m.opcode, content: m.content }), { qos: 1 });
+    client.publish(TOPIC.next + '/' + addr, JSON.stringify({ next: t.next, by: clientId }), { qos: 1, retain: true });
+    return m;
+  });
+  state.downlinks = [...created.slice().reverse(), ...state.downlinks];
+  render();
+};
+
+// Publica um uplink de teste no broker; ele volta pela assinatura e aparece na lista.
+$('simUplink').onclick = () => {
+  const addr = state.tags.length && Math.random() < 0.7
+    ? state.tags[Math.floor(Math.random() * state.tags.length)].addr
+    : mkAddr(state.tags.length + 1);
+  client.publish(TOPIC.uplink, JSON.stringify({
+    addr, mov: Math.random() < 0.5 ? 1 : 0, sos: Math.random() < 0.2 ? 1 : 0, bat: 5 + Math.floor(Math.random() * 96),
+  }), { qos: 0 });
+};
+
+// ---- Relatório ----
+const pct = (n, total) => total ? ' (' + Math.round(100 * n / total) + '%)' : '';
+const stampFull = ts => fmtDate(ts) + '/' + new Date(ts).getFullYear() + ' ' + fmtTime(ts);
+
+function buildReport() {
+  const dl = state.downlinks;
+  const delivered = dl.filter(d => d.delivered).length;
+  const viewed = dl.filter(d => d.viewed).length;
+  const L = [];
+  L.push('RELATORIO DE MENSAGERIA DE TAGS');
+  L.push('Gerado em: ' + stampFull(Date.now()));
+  L.push('Contagem desde: ' + stampFull(state.since) + ' (abertura da pagina)');
+  L.push('');
+  L.push('Uplinks recebidos:        ' + state.upTotal);
+  L.push('  com SOS ativo:          ' + state.upSos);
+  L.push('Downlinks enviados:       ' + dl.length);
+  L.push('Downlinks entregues:      ' + delivered + pct(delivered, dl.length));
+  L.push('Downlinks visualizados:   ' + viewed + pct(viewed, dl.length));
+  L.push('');
+  L.push('POR TAG');
+  L.push('Tag           Uplinks  Downlinks  Entregues  Visualizados');
+  const addrs = [...new Set([...state.tags.map(t => t.addr), ...Object.keys(state.upByTag)])].sort();
+  addrs.forEach(a => {
+    const mine = dl.filter(d => d.addr === a);
+    L.push(a.padEnd(14) + String(state.upByTag[a] || 0).padEnd(9) + String(mine.length).padEnd(11)
+      + String(mine.filter(d => d.delivered).length).padEnd(11) + mine.filter(d => d.viewed).length);
+  });
+  if (!addrs.length) L.push('(nenhuma tag)');
+  return L;
+}
+
+function fileStamp() {
+  const d = new Date();
+  return d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + pad(d.getSeconds());
+}
+
+function saveBlob(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+$('repTxt').onclick = () => {
+  saveBlob(new Blob([buildReport().join('\r\n') + '\r\n'], { type: 'text/plain;charset=utf-8' }), 'relatorio-mensageria-' + fileStamp() + '.txt');
+};
+
+$('repPdf').onclick = () => {
+  const lines = buildReport();
+  const doc = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4' });
+  doc.setFont('courier', 'normal');
+  let y = 20;
+  lines.forEach((line, i) => {
+    if (i === 0) { doc.setFont('courier', 'bold'); doc.setFontSize(14); } else { doc.setFont('courier', line === 'POR TAG' ? 'bold' : 'normal'); doc.setFontSize(10); }
+    if (y > 280) { doc.addPage(); y = 20; }
+    doc.text(line, 15, y);
+    y += i === 0 ? 9 : 6;
+  });
+  doc.save('relatorio-mensageria-' + fileStamp() + '.pdf');
+};
+
+const closePopup = () => { state.popup = null; render(); };
+$('popBack').onclick = closePopup;
+$('popClose').onclick = closePopup;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && state.popup) closePopup(); });
+
+render();
+</script>
+</body>
+</html>
