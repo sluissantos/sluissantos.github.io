@@ -48,6 +48,7 @@
   h2 { margin:0; font-size:15px; font-weight:600; }
   .headrow { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:4px 12px; }
   .headrow small { font-size:12px; color:var(--muted); }
+  .filter { height:36px; max-width:100%; padding:0 10px; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line3); border-radius:6px; }
 
   .scroll { overflow-y:auto; max-height:420px; scrollbar-color:#3a444d #1a2025; display:flex; flex-direction:column; }
   .tablewrap { overflow-x:auto; min-width:0; display:flex; flex-direction:column; min-height:0; flex:1; }
@@ -179,6 +180,7 @@
     <div class="headrow">
       <h2 id="h-down">Sent downlinks</h2>
       <small>server to tag · click to see the JSON</small>
+      <select class="filter" id="filterDown" aria-label="Show one tag or all"></select>
     </div>
     <div class="tablewrap" style="--tw:500px">
       <div class="thead cols-down"><span>Time</span><span>Tag</span><span>ID</span><span>Message</span><span>Delivered</span><span>Viewed</span></div>
@@ -193,10 +195,12 @@
         <h2 id="h-up">Received uplinks</h2>
         <small>tag status, reported by the anchors</small>
       </div>
+      <select class="filter" id="filterUp" aria-label="Show one tag or all"></select>
     </div>
     <div class="tablewrap" style="--tw:406px">
       <div class="thead cols-up"><span>Time</span><span>Tag</span><span>Anchor</span><span>Motion</span><span>SOS</span><span>Battery</span></div>
       <div class="scroll" id="uplinks"></div>
+      <p class="empty" id="noUplinks" style="margin:16px 8px" hidden>No status for this tag yet.</p>
     </div>
   </section>
 </main>
@@ -250,7 +254,7 @@ const clientId = 'web-' + Math.random().toString(16).slice(2, 10);
 
 const state = {
   msgIdx: 0, sendAll: true, selected: {}, seq: 1, popup: null, online: false,
-  tags: [], downlinks: [], uplinks: [],
+  tags: [], downlinks: [], uplinks: [], filter: '',   // filter: one tag address, or '' for all
   upTotal: 0, upSos: 0, upByTag: {}, since: Date.now(),
 };
 
@@ -275,6 +279,8 @@ function chip(cls, iconHtml, text) {
 function targets() {
   return state.sendAll ? state.tags.map(t => t.addr) : state.tags.filter(t => state.selected[t.addr]).map(t => t.addr);
 }
+
+let filterSig = null;
 
 function render() {
   const focusKey = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.fk;
@@ -316,9 +322,21 @@ function render() {
     : 'Target: ' + n + (n === 1 ? ' tag selected' : ' tags selected');
   $('send').disabled = n === 0 || !state.online || (custom && $('customText').value.trim() === '');
 
+  // Tag filter: both blocks show the same choice
+  const sig = state.tags.map(t => t.addr).sort().join(',');
+  if (sig !== filterSig) {           // rebuild the options only when a tag appears, so an open list is not closed
+    filterSig = sig;
+    for (const sel of [$('filterDown'), $('filterUp')]) {
+      sel.replaceChildren(new Option('All tags', ''), ...sig.split(',').filter(Boolean).map(a => new Option(a, a)));
+    }
+  }
+  $('filterDown').value = state.filter;
+  $('filterUp').value = state.filter;
+  const shown = list => state.filter ? list.filter(x => x.addr === state.filter) : list;
+
   // Downlinks
   const dl = $('downlinks'); dl.replaceChildren();
-  state.downlinks.forEach(d => {
+  shown(state.downlinks).forEach(d => {
     const b = el('button', 'tr cols-down'); b.type = 'button';
     b.setAttribute('aria-label', 'View downlink JSON'); b.dataset.fk = 'dl' + d.key;
     b.onclick = () => { state.popup = d.key; render(); };
@@ -331,11 +349,13 @@ function render() {
     b.children[5].setAttribute('aria-label', d.viewed ? 'Viewed' : 'Not viewed');
     dl.append(b);
   });
-  $('noDownlinks').hidden = state.downlinks.length > 0;
+  const nDown = shown(state.downlinks).length;
+  $('noDownlinks').hidden = nDown > 0;
+  $('noDownlinks').textContent = state.downlinks.length === 0 ? 'No downlink sent yet.' : 'No downlink for this tag.';
 
   // Uplinks
   const ul = $('uplinks'); ul.replaceChildren();
-  state.uplinks.forEach(u => {
+  shown(state.uplinks).forEach(u => {
     const row = el('div', 'tr cols-up');
     const mv = chip('mov ' + (u.mov ? 'ok' : 'bad'), u.mov ? ICON.move : ICON.stop, u.mov ? 'Moving' : 'Stopped');
     mv.title = 'Motion: ' + u.mov;
@@ -347,6 +367,8 @@ function render() {
     row.append(stamp(u.ts), el('span', 'cell-mono', u.addr), el('span', 'cell-mono', u.anchor), mv, so, bat);
     ul.append(row);
   });
+
+  $('noUplinks').hidden = !state.filter || shown(state.uplinks).length > 0;
 
   // Popup
   const pop = state.popup ? state.downlinks.find(d => d.key === state.popup) : null;
@@ -380,6 +402,10 @@ const selectCustom = () => { if (state.msgIdx !== MSGS.length) state.msgIdx = MS
 $('customRadio').onchange = () => { selectCustom(); $('customText').focus(); };
 $('customText').addEventListener('focus', selectCustom);
 $('customText').addEventListener('input', selectCustom);   // typing is intent: it selects this option
+
+for (const id of ['filterDown', 'filterUp']) {
+  $(id).onchange = e => { state.filter = e.target.value; render(); };
+}
 
 $('allBox').onchange = () => { state.sendAll = true; state.selected = {}; render(); };
 
