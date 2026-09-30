@@ -20,9 +20,11 @@
   button { font:inherit; border:0; border-radius:6px; padding:9px 16px; background:var(--accent); color:#fff; cursor:pointer; }
   button.secondary { background:transparent; color:var(--accent); border:1px solid var(--accent); }
   button:disabled { opacity:.5; cursor:default; }
-  #status { font-size:.9rem; }
-  #status.ok { color:var(--ok); } #status.err { color:var(--err); }
-  details summary { cursor:pointer; font-weight:600; }
+  #status { margin:0; font-size:.9rem; color:var(--muted); }
+  #status .dot { width:10px; height:10px; border-radius:50%; background:var(--muted); }
+  #status.ok { color:var(--ok); } #status.ok .dot { background:var(--ok); }
+  #status.err { color:var(--err); } #status.err .dot { background:var(--err); }
+  #topicName { color:var(--muted); margin-left:auto; }
   ul { list-style:none; margin:0; padding:0; display:grid; gap:6px; max-height:300px; overflow:auto; }
   li { font-size:.9rem; border-bottom:1px solid var(--line); padding-bottom:6px; word-break:break-word; }
   li small { color:var(--muted); display:block; }
@@ -32,20 +34,7 @@
 <main>
   <h1>Envio MQTT</h1>
 
-  <section>
-    <details id="cfg">
-      <summary>Conexão</summary>
-      <label>Broker <input id="host" value="8ee07f68d14341e282ad0f17e05ca521.s1.eu.hivemq.cloud"></label>
-      <label>Porta WebSocket (TLS) <input id="port" type="number" value="8884"></label>
-      <label>Usuário <input id="user" autocomplete="username" value="username"></label>
-      <label>Senha <input id="pass" type="password" autocomplete="current-password" value="password"></label>
-      <label>Tópico <input id="topic" value="aura/central/msg"></label>
-    </details>
-    <div class="row">
-      <button id="connect">Conectar</button>
-      <span id="status">Desconectado</span>
-    </div>
-  </section>
+  <p id="status" class="row"><span class="dot"></span><span id="state">Conectando...</span><small id="topicName"></small></p>
 
   <section>
     <label>Mensagem <textarea id="msg" placeholder="Digite a mensagem"></textarea></label>
@@ -60,26 +49,18 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const fields = ['host', 'port', 'user', 'pass', 'topic'];
-let client = null;
 
-// Valores padrão no HTML (broker de teste); o que for editado fica salvo neste navegador.
-try {
-  const saved = JSON.parse(localStorage.getItem('mqttCfg') || '{}');
-  fields.forEach(f => { if (saved[f]) $(f).value = saved[f]; });
-  if (!saved.user) $('cfg').open = true;
-} catch (e) { $('cfg').open = true; }
-
-function saveCfg() {
-  const cfg = {};
-  fields.forEach(f => cfg[f] = $(f).value.trim());
-  try { localStorage.setItem('mqttCfg', JSON.stringify(cfg)); } catch (e) {}
-  return cfg;
-}
+// Broker de teste: credenciais públicas de propósito.
+const CFG = {
+  url: 'wss://8ee07f68d14341e282ad0f17e05ca521.s1.eu.hivemq.cloud:8884/mqtt',
+  username: 'username',
+  password: 'password',
+  topic: 'aura/central/msg',
+};
 
 function setStatus(text, cls) {
-  $('status').textContent = text;
-  $('status').className = cls || '';
+  $('state').textContent = text;
+  $('status').className = 'row ' + (cls || '');
 }
 
 function addLog(text, note) {
@@ -91,35 +72,27 @@ function addLog(text, note) {
   $('log').prepend(li);
 }
 
-$('connect').onclick = () => {
-  if (client) { const c = client; client = null; c.end(true); return; }
-  const cfg = saveCfg();
-  setStatus('Conectando...');
-  client = mqtt.connect(`wss://${cfg.host}:${cfg.port}/mqtt`, {
-    username: cfg.user, password: cfg.pass,
-    clientId: 'web-' + Math.random().toString(16).slice(2, 10),
-    reconnectPeriod: 5000,
-  });
-  client.on('connect', () => {
-    setStatus('Conectado', 'ok');
-    $('connect').textContent = 'Desconectar';
-    $('send').disabled = false;
-    $('cfg').open = false;
-    client.subscribe(cfg.topic);
-  });
-  client.on('message', (t, payload) => addLog(payload.toString(), 'recebida em ' + t));
-  client.on('error', err => setStatus('Erro: ' + err.message, 'err'));
-  client.on('close', () => {
-    $('send').disabled = true;
-    if (!client) { setStatus('Desconectado'); $('connect').textContent = 'Conectar'; }
-    else setStatus('Reconectando...', 'err');
-  });
-};
+$('topicName').textContent = CFG.topic;
+
+const client = mqtt.connect(CFG.url, {
+  username: CFG.username, password: CFG.password,
+  clientId: 'web-' + Math.random().toString(16).slice(2, 10),
+  reconnectPeriod: 5000,
+});
+client.on('connect', () => {
+  setStatus('Conectado', 'ok');
+  $('send').disabled = false;
+  client.subscribe(CFG.topic);
+});
+client.on('reconnect', () => setStatus('Reconectando...', 'err'));
+client.on('error', err => setStatus('Erro: ' + err.message, 'err'));
+client.on('close', () => { $('send').disabled = true; });
+client.on('message', (t, payload) => addLog(payload.toString(), 'recebida em ' + t));
 
 $('send').onclick = () => {
   const text = $('msg').value;
-  if (!text || !client) return;
-  client.publish($('topic').value.trim(), text, { qos: 1 }, err => {
+  if (!text || !client.connected) return;
+  client.publish(CFG.topic, text, { qos: 1 }, err => {
     if (err) setStatus('Falha ao enviar: ' + err.message, 'err');
     else $('msg').value = '';
   });
