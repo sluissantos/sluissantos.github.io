@@ -1,9 +1,9 @@
 <!doctype html>
-<html lang="pt-BR">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Mensageria de Tags</title>
+<title>Tag Messaging</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
@@ -38,7 +38,7 @@
 
   main { flex:1; min-height:0; padding:16px; display:grid; gap:20px; grid-template-columns:minmax(0,1fr); align-content:start; }
   @media (min-width:1100px) {
-    main { padding:24px; grid-template-columns:300px minmax(0,1.4fr) minmax(0,1fr); align-content:stretch; }
+    main { padding:24px; grid-template-columns:300px minmax(0,1.3fr) minmax(0,1fr); align-content:stretch; }
     .scroll { min-height:0; flex:1; }
     section { min-height:0; }
   }
@@ -54,8 +54,9 @@
   .tr { display:grid; column-gap:12px; align-items:center; min-height:56px; padding:6px 8px; border-bottom:1px solid var(--line); font-size:13px; width:100%; }
   button.tr { border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--fg); text-align:left; }
   button.tr:hover { background:#242c33; }
-  .cols-down { grid-template-columns:64px 84px 36px minmax(0,1fr) 76px 76px; }
-  .cols-up { grid-template-columns:64px 84px 76px 60px minmax(0,1fr); column-gap:8px; }
+  .cols-down { grid-template-columns:60px 48px 28px minmax(0,1fr) 68px 68px; column-gap:10px; }
+  .msg small { display:block; color:var(--muted); font-size:11px; margin-top:2px; }
+  .cols-up { grid-template-columns:60px 44px 48px 72px 56px minmax(56px,1fr); column-gap:8px; }
   .t { display:flex; flex-direction:column; }
   .t b { font:400 12px var(--mono); }
   .t small { font-size:11px; color:var(--muted); }
@@ -65,8 +66,8 @@
   .chip.sq { width:52px; border-radius:6px; }
   .chip.ok { background:var(--ok-bg); color:var(--ok-fg); }
   .chip.bad { background:var(--bad-bg); color:var(--bad-fg); }
-  .chip.mov { width:76px; border-radius:14px; }
-  .chip.sos { width:60px; border-radius:4px; font-weight:600; border:1.5px solid rgba(123,232,171,.45); background:transparent; color:var(--ok-fg); }
+  .chip.mov { width:72px; border-radius:14px; }
+  .chip.sos { width:56px; border-radius:4px; font-weight:600; border:1.5px solid rgba(123,232,171,.45); background:transparent; color:var(--ok-fg); }
   .chip.sos.on { background:var(--sos); color:#fff; border-color:var(--sos); }
   .bat { display:flex; align-items:center; gap:8px; }
   .bat .bar { flex:1; height:8px; border-radius:4px; background:var(--line2); overflow:hidden; }
@@ -112,86 +113,86 @@
 
 <header>
   <div class="title">
-    <h1>Mensageria de Tags</h1>
-    <span class="sub">Uplink: tag para servidor. Downlink: servidor para tag.</span>
+    <h1>Tag Messaging</h1>
+    <span class="sub">Uplink: tag to server. Downlink: server to tag.</span>
   </div>
   <div class="right">
     <span class="type">message type: data</span>
     <span style="display:flex;gap:8px">
-      <button class="ghost" id="repTxt" type="button">Relatório .txt</button>
-      <button class="ghost" id="repPdf" type="button">Relatório PDF</button>
+      <button class="ghost" id="repTxt" type="button">Report .txt</button>
+      <button class="ghost" id="repPdf" type="button">Report PDF</button>
     </span>
-    <span class="conn" id="conn" role="status"><i></i><span id="connText">Conectando ao broker...</span></span>
+    <span class="conn" id="conn" role="status"><i></i><span id="connText">Connecting to broker...</span></span>
   </div>
 </header>
 
 <main>
   <section aria-labelledby="h-new">
-    <h2 id="h-new">Novo downlink</h2>
+    <h2 id="h-new">New downlink</h2>
 
     <div class="field">
-      <span class="lab">Tipo de mensagem</span>
-      <div class="fixed"><span>Mensagem</span><span class="mono">0xE4</span></div>
+      <span class="lab">Message type</span>
+      <div class="fixed"><span>Message</span><span class="mono">0xE4</span></div>
     </div>
 
     <fieldset>
-      <legend>Mensagem</legend>
+      <legend>Message</legend>
       <div id="msgOptions" style="display:flex;flex-direction:column;gap:6px"></div>
     </fieldset>
 
     <fieldset style="flex:1;min-height:0">
-      <legend>Destino</legend>
+      <legend>Target</legend>
       <label class="opt" id="allOpt">
         <input type="checkbox" id="allBox" data-fk="all">
-        <span class="grow">Todas as tags</span>
-        <span class="nx">padrão</span>
+        <span class="grow">All tags</span>
+        <span class="nx">default</span>
       </label>
       <div class="scroll tagpick" id="tagRows" style="max-height:240px"></div>
-      <p class="empty" id="noTags" hidden>Nenhuma tag conhecida. As tags aparecem aqui quando enviam o primeiro uplink.</p>
+      <p class="empty" id="noTags" hidden>No known tags. Tags appear here when they send their first uplink.</p>
     </fieldset>
 
     <div class="send-wrap">
       <span id="targetSummary"></span>
-      <button class="send" id="send" type="button">Enviar downlink</button>
+      <button class="send" id="send" type="button">Send downlink</button>
     </div>
   </section>
 
   <section aria-labelledby="h-down">
     <div class="headrow">
-      <h2 id="h-down">Downlinks enviados</h2>
-      <small>servidor para tag · clique para ver o JSON</small>
+      <h2 id="h-down">Sent downlinks</h2>
+      <small>server to tag · click to see the JSON</small>
     </div>
-    <div class="tablewrap" style="--tw:560px">
-      <div class="thead cols-down"><span>Horário</span><span>Tag</span><span>ID</span><span>Mensagem</span><span>Entregue</span><span>Visualizada</span></div>
+    <div class="tablewrap" style="--tw:500px">
+      <div class="thead cols-down"><span>Time</span><span>Tag</span><span>ID</span><span>Message</span><span>Delivered</span><span>Viewed</span></div>
       <div class="scroll" id="downlinks"></div>
-      <p class="empty" id="noDownlinks" style="margin:16px 8px">Nenhum downlink enviado ainda.</p>
+      <p class="empty" id="noDownlinks" style="margin:16px 8px">No downlink sent yet.</p>
     </div>
   </section>
 
   <section aria-labelledby="h-up">
     <div class="headrow">
       <div style="display:flex;flex-direction:column;gap:2px">
-        <h2 id="h-up">Uplinks recebidos</h2>
-        <small>tag para servidor</small>
+        <h2 id="h-up">Received uplinks</h2>
+        <small>tag status, reported by the anchors</small>
       </div>
-      <button class="ghost" id="simUplink" type="button">Simular uplink</button>
+      <button class="ghost" id="simUplink" type="button">Simulate uplink</button>
     </div>
-    <div class="tablewrap" style="--tw:420px">
-      <div class="thead cols-up"><span>Horário</span><span>Tag</span><span>Movimento</span><span>SOS</span><span>Bateria</span></div>
+    <div class="tablewrap" style="--tw:400px">
+      <div class="thead cols-up"><span>Time</span><span>Tag</span><span>Anchor</span><span>Motion</span><span>SOS</span><span>Battery</span></div>
       <div class="scroll" id="uplinks"></div>
     </div>
   </section>
 </main>
 
 <div class="overlay" id="popup" hidden>
-  <button class="back" id="popBack" type="button" aria-label="Fechar"></button>
-  <div class="dialog" role="dialog" aria-label="JSON do downlink">
+  <button class="back" id="popBack" type="button" aria-label="Close"></button>
+  <div class="dialog" role="dialog" aria-label="Downlink JSON">
     <div class="top">
       <div>
-        <h3>JSON do downlink</h3>
+        <h3>Downlink JSON</h3>
         <span class="when" id="popWhen"></span>
       </div>
-      <button class="close" id="popClose" type="button" aria-label="Fechar janela">
+      <button class="close" id="popClose" type="button" aria-label="Close window">
         <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13"/></svg>
       </button>
     </div>
@@ -201,11 +202,11 @@
 
 <script>
 const $ = id => document.getElementById(id);
-const MSGS = ['Apresente-se na portaria.', 'Saia imediatamente do galpão.', 'Encaminhe-se ao armazém 3.'];
+const MSGS = ['Report to the front desk.', 'Leave the warehouse immediately.', 'Go to warehouse 3.'];
 const pad = n => String(n).padStart(2, '0');
 const fmtTime = ts => { const d = new Date(ts); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); };
 const fmtDate = ts => { const d = new Date(ts); return pad(d.getDate()) + '/' + pad(d.getMonth() + 1); };
-const mkAddr = n => '1A2B3C' + pad(n.toString(16).toUpperCase());
+const mkAddr = n => '1A' + pad(n.toString(16).toUpperCase());
 
 const ICON = {
   ok:   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg>',
@@ -215,17 +216,19 @@ const ICON = {
   sos:  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5l6 10.5H2z"/><path d="M8 7v2.6M8 11.4v.1"/></svg>',
 };
 
-// Broker de teste: credenciais públicas de propósito (o mesmo do index.html).
+// Test broker: public credentials on purpose (same as index.html).
 const CFG = {
   url: 'wss://8ee07f68d14341e282ad0f17e05ca521.s1.eu.hivemq.cloud:8884/mqtt',
   username: 'username',
   password: 'password',
 };
+// This page plays the software. The message manager assigns the message ids.
+// See messaging_manager/docs/DESIGN.md for the contract.
+const SITE = 'lpx/bh/site1';
 const TOPIC = {
-  downlink: 'aura/downlink',   // a página publica: {"addr","id","opcode","content"}
-  uplink:   'aura/uplink',     // a página recebe:  {"addr","mov","sos","bat"}
-  ack:      'aura/ack',        // a página recebe:  {"addr","id","status":"delivered"|"viewed"}
-  next:     'aura/state/next', // contador de ID por tag, retido: aura/state/next/<addr>
+  request:   SITE + '/messaging_manager/request',  // the page publishes: {"request_id","tag_addr","message_opcode","message_content"}
+  status:    SITE + '/messaging_manager/status',   // the page receives:  {"request_id","tag_addr","message_id","state","anchor_addr","at"}
+  tagStatus: SITE + '/tag_rev/+/status',           // the page receives:  {"anchor_addr","tag_addr","on_motion","sos","battery"}
 };
 const clientId = 'web-' + Math.random().toString(16).slice(2, 10);
 
@@ -260,7 +263,7 @@ function targets() {
 function render() {
   const focusKey = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.fk;
 
-  // Mensagens
+  // Messages
   const mo = $('msgOptions'); mo.replaceChildren();
   MSGS.forEach((label, i) => {
     const l = el('label', 'opt' + (state.msgIdx === i ? ' on' : ''));
@@ -271,7 +274,7 @@ function render() {
     mo.append(l);
   });
 
-  // Destino
+  // Target
   $('allBox').checked = state.sendAll;
   $('allOpt').className = 'opt' + (state.sendAll ? ' on' : '');
   const tr = $('tagRows'); tr.replaceChildren();
@@ -281,16 +284,16 @@ function render() {
     const c = document.createElement('input');
     c.type = 'checkbox'; c.checked = on; c.dataset.fk = 'tag' + t.addr;
     c.onchange = () => toggleTag(t.addr);
-    const nx = el('span', 'nx', 'próx. ID ');
-    nx.append(el('b', '', String(t.next)));
+    const nx = el('span', 'nx', 'via ');
+    nx.append(el('b', '', t.anchor));
     l.append(c, el('span', 'grow addr', t.addr), nx);
     tr.append(l);
   });
   $('noTags').hidden = state.tags.length > 0;
   const n = targets().length;
   $('targetSummary').textContent = state.sendAll
-    ? 'Destino: todas as tags (' + state.tags.length + ')'
-    : 'Destino: ' + n + (n === 1 ? ' tag selecionada' : ' tags selecionadas');
+    ? 'Target: all tags (' + state.tags.length + ')'
+    : 'Target: ' + n + (n === 1 ? ' tag selected' : ' tags selected');
   $('send').disabled = n === 0 || !state.online;
   $('simUplink').disabled = !state.online;
 
@@ -298,13 +301,15 @@ function render() {
   const dl = $('downlinks'); dl.replaceChildren();
   state.downlinks.forEach(d => {
     const b = el('button', 'tr cols-down'); b.type = 'button';
-    b.setAttribute('aria-label', 'Ver JSON do downlink'); b.dataset.fk = 'dl' + d.key;
+    b.setAttribute('aria-label', 'View downlink JSON'); b.dataset.fk = 'dl' + d.key;
     b.onclick = () => { state.popup = d.key; render(); };
-    b.append(stamp(d.ts), el('span', 'cell-mono', d.addr), el('span', 'cell-mono', String(d.id)), el('span', '', d.content),
+    const msg = el('span', 'msg', d.content);
+    msg.append(el('small', '', d.state + (d.anchor ? ' · via ' + d.anchor : '')));
+    b.append(stamp(d.ts), el('span', 'cell-mono', d.addr), el('span', 'cell-mono', d.id === null ? '-' : String(d.id)), msg,
       chip('sq ' + (d.delivered ? 'ok' : 'bad'), d.delivered ? ICON.ok : ICON.no),
       chip('sq ' + (d.viewed ? 'ok' : 'bad'), d.viewed ? ICON.ok : ICON.no));
-    b.children[4].setAttribute('aria-label', d.delivered ? 'Entregue' : 'Não entregue');
-    b.children[5].setAttribute('aria-label', d.viewed ? 'Visualizada' : 'Não visualizada');
+    b.children[4].setAttribute('aria-label', d.delivered ? 'Delivered' : 'Not delivered');
+    b.children[5].setAttribute('aria-label', d.viewed ? 'Viewed' : 'Not viewed');
     dl.append(b);
   });
   $('noDownlinks').hidden = state.downlinks.length > 0;
@@ -313,14 +318,14 @@ function render() {
   const ul = $('uplinks'); ul.replaceChildren();
   state.uplinks.forEach(u => {
     const row = el('div', 'tr cols-up');
-    const mv = chip('mov ' + (u.mov ? 'ok' : 'bad'), u.mov ? ICON.move : ICON.stop, u.mov ? 'Movendo' : 'Parada');
-    mv.title = 'Movimento: ' + u.mov;
+    const mv = chip('mov ' + (u.mov ? 'ok' : 'bad'), u.mov ? ICON.move : ICON.stop, u.mov ? 'Moving' : 'Stopped');
+    mv.title = 'Motion: ' + u.mov;
     const so = chip('sos' + (u.sos ? ' on' : ''), u.sos ? ICON.sos : ICON.ok, u.sos ? 'SOS' : 'OK');
     so.title = 'SOS: ' + u.sos;
     const bat = el('span', 'bat');
     const bar = el('span', 'bar'); const fill = document.createElement('i'); fill.style.width = u.bat + '%'; bar.append(fill);
     bat.append(bar, el('span', '', u.bat + '%'));
-    row.append(stamp(u.ts), el('span', 'cell-mono', u.addr), mv, so, bat);
+    row.append(stamp(u.ts), el('span', 'cell-mono', u.addr), el('span', 'cell-mono', u.anchor), mv, so, bat);
     ul.append(row);
   });
 
@@ -328,8 +333,11 @@ function render() {
   const pop = state.popup ? state.downlinks.find(d => d.key === state.popup) : null;
   $('popup').hidden = !pop;
   if (pop) {
-    $('popWhen').textContent = 'Enviado em ' + fmtDate(pop.ts) + ' ' + fmtTime(pop.ts);
-    $('popJson').textContent = JSON.stringify({ addr: pop.addr, id: pop.id, opcode: pop.opcode, content: pop.content }, null, 2);
+    $('popWhen').textContent = 'Sent on ' + fmtDate(pop.ts) + ' ' + fmtTime(pop.ts);
+    $('popJson').textContent = JSON.stringify({
+      request: { request_id: pop.request_id, tag_addr: pop.addr, message_opcode: pop.opcode, message_content: pop.content },
+      last_status: pop.lastStatus,
+    }, null, 2);
   }
 
   if (focusKey) { const f = document.querySelector('[data-fk="' + focusKey + '"]'); if (f) f.focus(); }
@@ -345,13 +353,8 @@ function toggleTag(addr) {
 
 function ensureTag(addr) {
   let t = state.tags.find(x => x.addr === addr);
-  if (!t) { t = { addr, next: 0 }; state.tags.push(t); }
+  if (!t) { t = { addr, anchor: '' }; state.tags.push(t); }
   return t;
-}
-
-function patchDown(addr, id, patch) {
-  const d = state.downlinks.find(x => x.addr === addr && x.id === id);
-  if (d) Object.assign(d, patch);
 }
 
 $('allBox').onchange = () => { state.sendAll = true; state.selected = {}; render(); };
@@ -367,67 +370,71 @@ const client = mqtt.connect(CFG.url, {
 });
 client.on('connect', () => {
   state.online = true;
-  setConn('Conectado ao broker', 'ok');
-  client.subscribe([TOPIC.uplink, TOPIC.ack, TOPIC.next + '/+']);
+  setConn('Connected to broker', 'ok');
+  client.subscribe([TOPIC.status, TOPIC.tagStatus]);
   render();
 });
-client.on('reconnect', () => { state.online = false; setConn('Reconectando ao broker...', 'err'); render(); });
-client.on('offline', () => { state.online = false; setConn('Sem conexão com o broker', 'err'); render(); });
+client.on('reconnect', () => { state.online = false; setConn('Reconnecting to broker...', 'err'); render(); });
+client.on('offline', () => { state.online = false; setConn('No connection to broker', 'err'); render(); });
 client.on('close', () => { state.online = false; render(); });
-client.on('error', err => { setConn('Erro: ' + err.message, 'err'); });
+client.on('error', err => { setConn('Error: ' + err.message, 'err'); });
 
 client.on('message', (topic, payload) => {
   let o;
   try { o = JSON.parse(payload.toString()); } catch (e) { return; }
   if (!o || typeof o !== 'object') return;
-  if (topic.startsWith(TOPIC.next + '/')) {
-    if (o.by === clientId) return;                       // eco do próprio envio
-    const n = Number(o.next);
-    if (Number.isInteger(n)) ensureTag(topic.slice(TOPIC.next.length + 1)).next = n & 255;
-  } else if (topic === TOPIC.uplink) {
-    const addr = String(o.addr || '').toUpperCase();
-    if (!addr) return;
-    ensureTag(addr);
+  if (topic === TOPIC.status) {
+    const d = state.downlinks.find(x => x.request_id === o.request_id);
+    if (!d) return;                                        // a request made by another session
+    if (Number.isInteger(o.message_id)) d.id = o.message_id;
+    d.state = String(o.state);
+    if (o.anchor_addr) d.anchor = String(o.anchor_addr).toUpperCase();
+    d.lastStatus = o;
+    if (d.state === 'delivered') d.delivered = true;
+    if (d.state === 'viewed') { d.delivered = true; d.viewed = true; }
+  } else {
+    const m = topic.match(/\/tag_rev\/([^/]+)\/status$/);
+    const addr = String(o.tag_addr || '').toUpperCase();
+    if (!m || !/^[0-9A-F]{4}$/.test(addr)) return;
+    const anchor = m[1].toUpperCase();                      // the topic is the source of truth
+    ensureTag(addr).anchor = anchor;
     state.upTotal++; if (o.sos) state.upSos++;
     state.upByTag[addr] = (state.upByTag[addr] || 0) + 1;
-    const bat = Math.max(0, Math.min(100, Number(o.bat ?? o.battery) || 0));
-    state.uplinks = [{ ts: Date.now(), addr, mov: (o.mov ?? o.motion) ? 1 : 0, sos: o.sos ? 1 : 0, bat }, ...state.uplinks].slice(0, 200);
-  } else if (topic === TOPIC.ack) {
-    const addr = String(o.addr || '').toUpperCase();
-    const id = Number(o.id);
-    if (o.status === 'viewed') patchDown(addr, id, { delivered: true, viewed: true });
-    else if (o.status === 'delivered') patchDown(addr, id, { delivered: true });
+    const bat = Math.max(0, Math.min(100, Number(o.battery) || 0));
+    state.uplinks = [{ ts: Date.now(), addr, anchor, mov: o.on_motion ? 1 : 0, sos: o.sos ? 1 : 0, bat }, ...state.uplinks].slice(0, 200);
   }
   render();
 });
 
+// One request per tag; the manager answers on the status topic with the id it assigned.
 $('send').onclick = () => {
   const list = targets();
   if (!list.length || !state.online) return;
   const ts = Date.now();
   const created = list.map(addr => {
-    const t = state.tags.find(x => x.addr === addr);
-    const m = { key: 'd' + state.seq++, ts, addr, id: t.next, opcode: '0xE4', content: MSGS[state.msgIdx], delivered: false, viewed: false };
-    t.next = (t.next + 1) % 256;
-    client.publish(TOPIC.downlink, JSON.stringify({ addr: m.addr, id: m.id, opcode: m.opcode, content: m.content }), { qos: 1 });
-    client.publish(TOPIC.next + '/' + addr, JSON.stringify({ next: t.next, by: clientId }), { qos: 1, retain: true });
+    const request_id = 'sw-' + ts.toString(36) + '-' + state.seq;
+    const m = { key: 'd' + state.seq++, ts, request_id, addr, id: null, opcode: '0xE4', content: MSGS[state.msgIdx],
+      state: 'waiting for manager', anchor: null, delivered: false, viewed: false, lastStatus: null };
+    client.publish(TOPIC.request, JSON.stringify({ request_id, tag_addr: addr, message_opcode: m.opcode, message_content: m.content }), { qos: 1 });
     return m;
   });
   state.downlinks = [...created.slice().reverse(), ...state.downlinks];
   render();
 };
 
-// Publica um uplink de teste no broker; ele volta pela assinatura e aparece na lista.
+// Publishes a test tag status as if an anchor had reported it; it comes back through the subscription.
 $('simUplink').onclick = () => {
   const addr = state.tags.length && Math.random() < 0.7
     ? state.tags[Math.floor(Math.random() * state.tags.length)].addr
     : mkAddr(state.tags.length + 1);
-  client.publish(TOPIC.uplink, JSON.stringify({
-    addr, mov: Math.random() < 0.5 ? 1 : 0, sos: Math.random() < 0.2 ? 1 : 0, bat: 5 + Math.floor(Math.random() * 96),
+  const anchor = Math.random() < 0.5 ? 'A001' : 'A002';
+  client.publish(SITE + '/tag_rev/' + anchor + '/status', JSON.stringify({
+    anchor_addr: anchor, tag_addr: addr,
+    on_motion: Math.random() < 0.5 ? 1 : 0, sos: Math.random() < 0.2 ? 1 : 0, battery: 5 + Math.floor(Math.random() * 96),
   }), { qos: 0 });
 };
 
-// ---- Relatório ----
+// ---- Report ----
 const pct = (n, total) => total ? ' (' + Math.round(100 * n / total) + '%)' : '';
 const stampFull = ts => fmtDate(ts) + '/' + new Date(ts).getFullYear() + ' ' + fmtTime(ts);
 
@@ -435,26 +442,28 @@ function buildReport() {
   const dl = state.downlinks;
   const delivered = dl.filter(d => d.delivered).length;
   const viewed = dl.filter(d => d.viewed).length;
+  const lost = dl.filter(d => d.state === 'expired' || d.state === 'failed').length;
   const L = [];
-  L.push('RELATORIO DE MENSAGERIA DE TAGS');
-  L.push('Gerado em: ' + stampFull(Date.now()));
-  L.push('Contagem desde: ' + stampFull(state.since) + ' (abertura da pagina)');
+  L.push('TAG MESSAGING REPORT');
+  L.push('Generated on: ' + stampFull(Date.now()));
+  L.push('Counting since: ' + stampFull(state.since) + ' (page opened)');
   L.push('');
-  L.push('Uplinks recebidos:        ' + state.upTotal);
-  L.push('  com SOS ativo:          ' + state.upSos);
-  L.push('Downlinks enviados:       ' + dl.length);
-  L.push('Downlinks entregues:      ' + delivered + pct(delivered, dl.length));
-  L.push('Downlinks visualizados:   ' + viewed + pct(viewed, dl.length));
+  L.push('Tag status received:      ' + state.upTotal);
+  L.push('  with SOS active:        ' + state.upSos);
+  L.push('Downlinks requested:      ' + dl.length);
+  L.push('Downlinks delivered:      ' + delivered + pct(delivered, dl.length));
+  L.push('Downlinks viewed:         ' + viewed + pct(viewed, dl.length));
+  L.push('Downlinks expired/failed: ' + lost + pct(lost, dl.length));
   L.push('');
-  L.push('POR TAG');
-  L.push('Tag           Uplinks  Downlinks  Entregues  Visualizados');
+  L.push('PER TAG');
+  L.push('Tag           Status   Downlinks  Delivered  Viewed');
   const addrs = [...new Set([...state.tags.map(t => t.addr), ...Object.keys(state.upByTag)])].sort();
   addrs.forEach(a => {
     const mine = dl.filter(d => d.addr === a);
     L.push(a.padEnd(14) + String(state.upByTag[a] || 0).padEnd(9) + String(mine.length).padEnd(11)
       + String(mine.filter(d => d.delivered).length).padEnd(11) + mine.filter(d => d.viewed).length);
   });
-  if (!addrs.length) L.push('(nenhuma tag)');
+  if (!addrs.length) L.push('(no tags)');
   return L;
 }
 
@@ -472,7 +481,7 @@ function saveBlob(blob, name) {
 }
 
 $('repTxt').onclick = () => {
-  saveBlob(new Blob([buildReport().join('\r\n') + '\r\n'], { type: 'text/plain;charset=utf-8' }), 'relatorio-mensageria-' + fileStamp() + '.txt');
+  saveBlob(new Blob([buildReport().join('\r\n') + '\r\n'], { type: 'text/plain;charset=utf-8' }), 'messaging-report-' + fileStamp() + '.txt');
 };
 
 $('repPdf').onclick = () => {
@@ -481,12 +490,12 @@ $('repPdf').onclick = () => {
   doc.setFont('courier', 'normal');
   let y = 20;
   lines.forEach((line, i) => {
-    if (i === 0) { doc.setFont('courier', 'bold'); doc.setFontSize(14); } else { doc.setFont('courier', line === 'POR TAG' ? 'bold' : 'normal'); doc.setFontSize(10); }
+    if (i === 0) { doc.setFont('courier', 'bold'); doc.setFontSize(14); } else { doc.setFont('courier', line === 'PER TAG' ? 'bold' : 'normal'); doc.setFontSize(10); }
     if (y > 280) { doc.addPage(); y = 20; }
     doc.text(line, 15, y);
     y += i === 0 ? 9 : 6;
   });
-  doc.save('relatorio-mensageria-' + fileStamp() + '.pdf');
+  doc.save('messaging-report-' + fileStamp() + '.pdf');
 };
 
 const closePopup = () => { state.popup = null; render(); };
