@@ -18,31 +18,55 @@
     color-scheme: dark;
   }
   * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
   html, body { height:100%; }
   body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--sans); font-size:14px; display:flex; flex-direction:column; }
   button { font-family:inherit; cursor:pointer; }
-  button:focus-visible, input:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  button:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
   .mono { font-family:var(--mono); }
   .muted { color:var(--muted); }
+  a { color:var(--accent); }
 
   header { flex-shrink:0; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; padding:16px; border-bottom:1px solid var(--line); }
   header .title { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 16px; }
   h1 { margin:0; font-size:22px; font-weight:600; letter-spacing:.01em; }
-  header .sub { font-size:13px; color:var(--muted); }
-  header .type { font-family:var(--mono); font-size:12px; color:var(--muted); }
   header .right { display:flex; flex-wrap:wrap; align-items:center; gap:8px 20px; }
+  header .btns { display:flex; flex-wrap:wrap; gap:8px; }
   .conn { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); }
   .conn i { width:10px; height:10px; border-radius:50%; background:var(--muted); flex-shrink:0; }
   .conn.ok { color:var(--ok-fg); } .conn.ok i { background:var(--ok-fg); }
   .conn.err { color:var(--bad-fg); } .conn.err i { background:var(--bad-fg); }
 
+  /* SOS banner: one red strip per open episode, above everything else */
+  .sosbar { flex-shrink:0; display:flex; flex-direction:column; }
+  .sosep { display:flex; flex-wrap:wrap; align-items:center; gap:6px 16px; padding:12px 16px; background:var(--sos); color:#fff; border-bottom:1px solid rgba(0,0,0,.3); }
+  .sosep .big { display:flex; align-items:center; gap:10px; font-size:18px; font-weight:600; }
+  .sosep .big .addr { font-family:var(--mono); font-weight:500; }
+  .sosep .big svg { flex-shrink:0; animation:sospulse 1.2s ease-in-out infinite; }
+  .sosep .what { font-size:15px; font-weight:600; background:rgba(0,0,0,.25); padding:4px 10px; border-radius:4px; }
+  .sosep .meta { flex-basis:100%; display:flex; flex-wrap:wrap; gap:4px 16px; font-size:13px; }
+  .sosep .meta b { font:500 13px var(--mono); }
+  .sosep a { color:#fff; }
+  @keyframes sospulse { 50% { opacity:.35; } }
+  @media (prefers-reduced-motion: reduce) { .sosep .big svg { animation:none; } }
+
   main { flex:1; min-height:0; padding:16px; display:grid; gap:20px; grid-template-columns:minmax(0,1fr); align-content:start; }
+  .col { display:flex; flex-direction:column; gap:20px; min-width:0; }
+  @media (max-width:1099px) {
+    html, body { height:auto; min-height:100%; }   /* the page scrolls, so the SOS banner can stay in view */
+    .sosbar { position:sticky; top:0; z-index:5; }
+  }
   @media (min-width:1100px) {
     main { padding:24px; grid-template-columns:300px minmax(0,1.3fr) minmax(0,1fr); align-content:stretch; }
     main .scroll, main .tagpick { min-height:0; flex:1; max-height:none; }   /* the lists fill their block down to its bottom edge */
     main .tagpick { min-height:120px; }
+    main fieldset.targets { min-height:200px; }   /* never shorter than its list: the form scrolls instead of overlapping */
     main > section:first-child { overflow-y:auto; }   /* a short window scrolls the form instead of squeezing the tag list */
     section { min-height:0; }
+    .col { min-height:0; }
+    #tagsSec { flex:0 1 auto; max-height:50%; }
+    main #tagList { flex:0 1 auto; }
+    #upSec { flex:1 1 0; min-height:200px; }
   }
   section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; display:flex; flex-direction:column; gap:12px; min-width:0; }
   h2 { margin:0; font-size:15px; font-weight:600; }
@@ -51,6 +75,7 @@
   .filter { height:36px; max-width:100%; padding:0 10px; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line3); border-radius:6px; }
 
   .scroll { overflow-y:auto; max-height:420px; scrollbar-color:#3a444d #1a2025; display:flex; flex-direction:column; }
+  .scroll > * { flex-shrink:0; }   /* a row taller than its min-height must push the next one down */
   .tablewrap { overflow-x:auto; min-width:0; display:flex; flex-direction:column; min-height:0; flex:1; }
   .tablewrap > * { min-width:var(--tw); }
   .thead { display:grid; column-gap:12px; padding:0 8px 8px; border-bottom:1px solid var(--line2); font-size:11px; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
@@ -58,8 +83,13 @@
   button.tr { border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--fg); text-align:left; }
   button.tr:hover { background:#242c33; }
   .cols-down { grid-template-columns:60px 48px 28px minmax(0,1fr) 68px 68px; column-gap:10px; }
-  .msg small { display:block; color:var(--muted); font-size:11px; margin-top:2px; }
-  .cols-up { grid-template-columns:60px 44px 48px 72px 56px minmax(70px,1fr); column-gap:8px; }
+  .msg { overflow-wrap:anywhere; }
+  .msg .op { font:500 11px var(--mono); color:var(--accent); margin-right:6px; }
+  .msg small { display:block; color:var(--muted); font-size:11px; margin-top:3px; }
+  .msg small .ok { color:var(--ok-fg); } .msg small .bad { color:var(--bad-fg); }
+  .msg.auto .txt { color:var(--muted); }
+  .cols-up { grid-template-columns:60px 44px 40px 72px 56px minmax(70px,1fr); column-gap:8px; }
+  .anchors span { display:block; }
   .t { display:flex; flex-direction:column; }
   .t b { font:400 12px var(--mono); }
   .t small { font-size:11px; color:var(--muted); }
@@ -69,6 +99,7 @@
   .chip.sq { width:52px; border-radius:6px; }
   .chip.ok { background:var(--ok-bg); color:var(--ok-fg); }
   .chip.bad { background:var(--bad-bg); color:var(--bad-fg); }
+  .chip.na { background:var(--line2); color:var(--muted); font:500 14px var(--mono); }
   .chip.mov { width:72px; border-radius:14px; }
   .chip.sos { width:56px; border-radius:4px; font-weight:600; border:1.5px solid rgba(123,232,171,.45); background:transparent; color:var(--ok-fg); }
   .chip.sos.on { background:var(--sos); color:#fff; border-color:var(--sos); }
@@ -76,16 +107,36 @@
   .bat .bar { flex:1; height:8px; border-radius:4px; background:var(--line2); overflow:hidden; }
   .bat .bar i { display:block; height:8px; background:#9fb0bd; }
   .bat span { width:38px; text-align:right; font:400 12px var(--mono); }
+  .pill { display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:10px; font-size:11px; font-weight:600; letter-spacing:.03em; white-space:nowrap; }
+  .pill.base { background:rgba(245,165,36,.16); color:var(--accent); }
+  .pill.sos { background:var(--sos); color:#fff; }
+
+  /* Tags: merged state per tag */
+  .tagcard { border:1px solid var(--line2); border-radius:6px; padding:8px 10px; display:flex; flex-direction:column; gap:6px; }
+  .tagcard + .tagcard { margin-top:6px; }
+  .tagcard.sos { border-color:var(--sos); background:rgba(201,60,65,.10); }
+  .tagcard .l1 { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; }
+  .tagcard .addr { font:500 14px var(--mono); margin-right:2px; }
+  .tagcard .mv { font-size:12px; color:var(--muted); }
+  .tagcard .seen { margin-left:auto; font:400 12px var(--mono); color:var(--muted); }
+  .kv { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; font-size:12px; color:var(--muted); }
+  .kv .it { display:inline-flex; align-items:center; gap:5px; }
+  .kv b { font:400 12px var(--mono); color:var(--fg); }
+  .kv .mini { width:34px; height:6px; border-radius:3px; background:var(--line2); overflow:hidden; }
+  .kv .mini i { display:block; height:6px; background:#9fb0bd; }
 
   .field { display:flex; flex-direction:column; gap:6px; }
   .effort { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
-  .effort input { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line2); border-radius:6px; height:40px; padding:0 10px; width:100%; }
-  .effort input::placeholder { color:var(--muted); }
+  .inp, .effort input { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line2); border-radius:6px; height:40px; padding:0 10px; width:100%; }
+  .inp::placeholder, .effort input::placeholder { color:var(--muted); }
+  .inp.mono { font-family:var(--mono); text-transform:uppercase; letter-spacing:.08em; }
+  .inp.mono::placeholder { text-transform:none; letter-spacing:0; }
   .field > .lab, legend { font-size:12px; color:var(--muted); padding:0; }
+  .field .note { font-size:12px; color:var(--muted); line-height:1.4; }
   fieldset { margin:0; padding:0; border:0; min-width:0; display:flex; flex-direction:column; gap:6px; }
   legend { margin-bottom:6px; }
-  .fixed { display:flex; align-items:center; justify-content:space-between; height:40px; padding:0 12px; background:var(--bg); border:1px solid var(--line2); border-radius:6px; }
-  .fixed .mono { font-size:13px; color:var(--accent); }
+  fieldset.targets { flex:1; min-height:0; }
+  select.cmd { width:100%; height:40px; border-color:var(--line2); }
   .opt { display:flex; align-items:center; gap:10px; min-height:44px; padding:0 12px; border-radius:6px; cursor:pointer; border:1px solid var(--line2); background:transparent; }
   .opt.on { border-color:var(--accent); background:var(--accent-bg); }
   .opt.custom { align-items:flex-start; padding:10px 12px; }
@@ -94,39 +145,50 @@
   .opt.custom textarea::placeholder { color:var(--muted); }
   .opt input { margin:0; width:16px; height:16px; accent-color:var(--accent); }
   .opt .grow { flex:1; min-width:0; }
-  .opt .addr { font:400 13px var(--mono); }
-  .opt .nx { font-size:12px; color:var(--muted); }
+  .opt .addr { font:400 13px var(--mono); flex:0 0 auto; }
+  .opt .nx { font-size:12px; color:var(--muted); margin-left:auto; text-align:right; }
   .opt .nx b { font:400 12px var(--mono); color:var(--fg); }
+  .opt.tag { gap:8px; }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
   .empty { margin:8px 0 0; font-size:13px; color:var(--muted); line-height:1.4; }
   .tagpick { display:flex; flex-direction:column; gap:4px; max-height:240px; }
   .send-wrap { display:flex; flex-direction:column; gap:8px; }
-  .send-wrap span { font-size:12px; color:var(--muted); }
-  .send { height:48px; border:0; border-radius:6px; background:var(--accent); color:var(--bg); font-size:15px; font-weight:600; }
+  .send-wrap > span { font-size:12px; color:var(--muted); }
+  .send-wrap .warn { color:var(--accent); line-height:1.4; }
+  .send-row { display:flex; gap:8px; }
+  .send { flex:1; height:48px; border:0; border-radius:6px; background:var(--accent); color:var(--bg); font-size:15px; font-weight:600; }
   .send:hover:not(:disabled) { background:#ffb936; }
   .send:disabled { opacity:.4; cursor:default; }
+  .send.danger { background:var(--sos); color:#fff; }
+  .send.danger:hover:not(:disabled) { background:#dc4a50; }
+  .send-row .ghost { height:48px; }
   .ghost { height:36px; padding:0 12px; border:1px solid var(--line3); border-radius:6px; background:transparent; color:var(--fg); font-size:13px; }
   .ghost:hover { background:#2a333b; }
+  .ghost.alert { border-color:var(--sos); }
 
   .overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:16px; z-index:10; }
-  .overlay[hidden] { display:none; }
   .overlay .back { position:absolute; inset:0; border:0; background:rgba(8,10,12,.72); cursor:default; }
-  .dialog { position:relative; width:min(460px,100%); background:var(--panel); border:1px solid var(--line3); border-radius:10px; padding:20px; display:flex; flex-direction:column; gap:14px; box-shadow:0 24px 60px rgba(0,0,0,.5); }
+  .dialog { position:relative; width:min(460px,100%); max-height:100%; background:var(--panel); border:1px solid var(--line3); border-radius:10px; padding:20px; display:flex; flex-direction:column; gap:14px; box-shadow:0 24px 60px rgba(0,0,0,.5); }
+  .dialog.wide { width:min(680px,100%); }
   .dialog h3 { margin:0; font-size:16px; font-weight:600; }
   .dialog .when { font-size:12px; color:var(--muted); }
   .dialog .top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
   .dialog .close { width:44px; height:44px; margin:-8px -8px 0 0; border:0; border-radius:6px; background:transparent; color:var(--fg); display:flex; align-items:center; justify-content:center; }
   .dialog .close:hover { background:#2a333b; }
-  pre { margin:0; padding:16px; background:var(--bg); border:1px solid var(--line2); border-radius:6px; font:400 13px/1.6 var(--mono); color:#d7dde2; white-space:pre-wrap; overflow-wrap:anywhere; }
+  pre { margin:0; padding:16px; background:var(--bg); border:1px solid var(--line2); border-radius:6px; font:400 13px/1.6 var(--mono); color:#d7dde2; white-space:pre-wrap; overflow-wrap:anywhere; overflow-y:auto; min-height:0; }
 </style>
 </head>
 <body>
+
+<div class="sosbar" id="sosBar" role="alert" aria-live="assertive" hidden></div>
 
 <header>
   <div class="title">
     <h1>Tag Messaging</h1>
   </div>
   <div class="right">
-    <span style="display:flex;gap:8px">
+    <span class="btns">
+      <button class="ghost" id="sosHist" type="button">SOS history</button>
       <button class="ghost" id="repTxt" type="button">Report .txt</button>
       <button class="ghost" id="repPdf" type="button">Report PDF</button>
     </span>
@@ -138,12 +200,12 @@
   <section aria-labelledby="h-new">
     <h2 id="h-new">New downlink</h2>
 
-    <div class="field">
-      <span class="lab">Message type</span>
-      <div class="fixed"><span>Message</span><span class="mono">0xE4</span></div>
-    </div>
+    <label class="field">
+      <span class="lab">Command</span>
+      <select class="filter cmd" id="cmd"></select>
+    </label>
 
-    <fieldset>
+    <fieldset data-for="0xE4">
       <legend>Message</legend>
       <div id="msgOptions" style="display:flex;flex-direction:column;gap:6px"></div>
       <label class="opt custom" id="customOpt">
@@ -152,6 +214,30 @@
       </label>
     </fieldset>
 
+    <label class="field" data-for="0xE6">
+      <span class="lab">Text on the tag's SOS screen</span>
+      <input class="inp" type="text" id="sosText" placeholder="For example: Leave the area now." autocomplete="off">
+      <span class="note">The tag enters SOS. The confirmation is sent by the manager, never by this page.</span>
+    </label>
+
+    <fieldset data-for="0xED">
+      <legend>Vibration</legend>
+      <div class="pair">
+        <label class="opt" id="vibOn"><input type="radio" name="viber" id="vibOnRadio" data-fk="vib1"><span class="grow">On</span></label>
+        <label class="opt" id="vibOff"><input type="radio" name="viber" id="vibOffRadio" data-fk="vib0"><span class="grow">Off</span></label>
+      </div>
+    </fieldset>
+
+    <label class="field" data-for="0xEB">
+      <span class="lab">New tag address</span>
+      <input class="inp mono" type="text" id="newAddr" maxlength="4" placeholder="4 hex digits, e.g. 1B2C" autocomplete="off" spellcheck="false">
+      <span class="note">The tag takes the new address and reboots.</span>
+    </label>
+
+    <div class="field" data-for="0xE8"><span class="note">No arguments. The anchor writes the current time when it hands the command to the radio.</span></div>
+    <div class="field" data-for="0xEC"><span class="note">Erases the tag's flash. The tag reboots.</span></div>
+    <div class="field" data-for="0xFF"><span class="note">Reboots the tag.</span></div>
+
     <div class="effort">
       <label class="field"><span class="lab">Valid for (s)</span>
         <input type="number" id="ttl" min="10" max="86400" step="1" placeholder="default" title="Optional, 10 to 86400 seconds. Empty: nothing is sent and the default applies." inputmode="numeric"></label>
@@ -159,7 +245,7 @@
         <input type="number" id="attempts" min="1" max="10" step="1" placeholder="default" title="Optional, 1 to 10 rounds. Empty: nothing is sent and the firmware default applies." inputmode="numeric"></label>
     </div>
 
-    <fieldset style="flex:1;min-height:0">
+    <fieldset class="targets">
       <legend>Target</legend>
       <label class="opt" id="allOpt">
         <input type="checkbox" id="allBox" data-fk="all">
@@ -167,12 +253,16 @@
         <span class="nx">default</span>
       </label>
       <div class="scroll tagpick" id="tagRows"></div>
-      <p class="empty" id="noTags" hidden>No known tags. Tags appear here when they send their first uplink.</p>
+      <p class="empty" id="noTags" hidden>No known tags. Tags appear here when the messaging manager publishes their state.</p>
     </fieldset>
 
     <div class="send-wrap">
       <span id="targetSummary"></span>
-      <button class="send" id="send" type="button">Send downlink</button>
+      <span class="warn" id="sendWarn" hidden></span>
+      <div class="send-row">
+        <button class="send" id="send" type="button">Send downlink</button>
+        <button class="ghost" id="sendCancel" type="button" hidden>Cancel</button>
+      </div>
     </div>
   </section>
 
@@ -183,34 +273,45 @@
       <select class="filter" id="filterDown" aria-label="Show one tag or all"></select>
     </div>
     <div class="tablewrap" style="--tw:500px">
-      <div class="thead cols-down"><span>Time</span><span>Tag</span><span>ID</span><span>Message</span><span>Delivered</span><span>Viewed</span></div>
+      <div class="thead cols-down"><span>Time</span><span>Tag</span><span>ID</span><span>Command</span><span>Delivered</span><span>Viewed</span></div>
       <div class="scroll" id="downlinks"></div>
       <p class="empty" id="noDownlinks" style="margin:16px 8px">No downlink sent yet.</p>
     </div>
   </section>
 
-  <section aria-labelledby="h-up">
-    <div class="headrow">
-      <div style="display:flex;flex-direction:column;gap:2px">
-        <h2 id="h-up">Received uplinks</h2>
-        <small>tag status, reported by the anchors</small>
+  <div class="col">
+    <section id="tagsSec" aria-labelledby="h-tags">
+      <div class="headrow">
+        <h2 id="h-tags">Tags</h2>
+        <small id="tagsNote">merged state from the messaging manager</small>
       </div>
-      <select class="filter" id="filterUp" aria-label="Show one tag or all"></select>
-    </div>
-    <div class="tablewrap" style="--tw:406px">
-      <div class="thead cols-up"><span>Time</span><span>Tag</span><span>Anchor</span><span>Motion</span><span>SOS</span><span>Battery</span></div>
-      <div class="scroll" id="uplinks"></div>
-      <p class="empty" id="noUplinks" style="margin:16px 8px" hidden>No status for this tag yet.</p>
-    </div>
-  </section>
+      <div class="scroll" id="tagList"></div>
+      <p class="empty" id="noTagState" style="margin:0">No tag state received yet.</p>
+    </section>
+
+    <section id="upSec" aria-labelledby="h-up">
+      <div class="headrow">
+        <div style="display:flex;flex-direction:column;gap:2px">
+          <h2 id="h-up">Received uplinks</h2>
+          <small>tag state updates, one per message</small>
+        </div>
+        <select class="filter" id="filterUp" aria-label="Show one tag or all"></select>
+      </div>
+      <div class="tablewrap" style="--tw:398px">
+        <div class="thead cols-up"><span>Time</span><span>Tag</span><span title="Anchors that hear the tag">Via</span><span>Motion</span><span>SOS</span><span>Battery</span></div>
+        <div class="scroll" id="uplinks"></div>
+        <p class="empty" id="noUplinks" style="margin:16px 8px" hidden>No status for this tag yet.</p>
+      </div>
+    </section>
+  </div>
 </main>
 
 <div class="overlay" id="popup" hidden>
   <button class="back" id="popBack" type="button" aria-label="Close"></button>
-  <div class="dialog" role="dialog" aria-label="Downlink JSON">
+  <div class="dialog" id="popDialog" role="dialog" aria-labelledby="popTitle">
     <div class="top">
       <div>
-        <h3>Downlink JSON</h3>
+        <h3 id="popTitle">Downlink JSON</h3>
         <span class="when" id="popWhen"></span>
       </div>
       <button class="close" id="popClose" type="button" aria-label="Close window">
@@ -227,6 +328,9 @@ const MSGS = ['Report to the front desk.', 'Leave the warehouse immediately.', '
 const pad = n => String(n).padStart(2, '0');
 const fmtTime = ts => { const d = new Date(ts); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); };
 const fmtDate = ts => { const d = new Date(ts); return pad(d.getDate()) + '/' + pad(d.getMonth() + 1); };
+const upper = v => String(v || '').toUpperCase();
+const isAddr = a => /^[0-9A-F]{4}$/.test(a);
+const parseTs = s => { const t = Date.parse(s); return Number.isFinite(t) ? t : Date.now(); };
 
 const ICON = {
   ok:   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg>',
@@ -234,6 +338,7 @@ const ICON = {
   move: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h11M9 4l4 4-4 4"/></svg>',
   stop: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg>',
   sos:  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5l6 10.5H2z"/><path d="M8 7v2.6M8 11.4v.1"/></svg>',
+  alarm:'<svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5l6 10.5H2z"/><path d="M8 7v2.6M8 11.4v.1"/></svg>',
 };
 
 // Test broker: public credentials on purpose (same as index.html).
@@ -242,19 +347,45 @@ const CFG = {
   username: 'username',
   password: 'password',
 };
-// This page plays the software. The message manager assigns the message ids.
+// This page plays the software: it needs only <site>/messaging_manager/#.
 // See messaging_manager/docs/DESIGN.md for the contract.
-const SITE = 'lpx/bh/site1';
+const SITE = 'lpx/demo/bh';
 const TOPIC = {
-  request:   SITE + '/messaging_manager/request',  // the page publishes: {"request_id","tag_addr","message_opcode","message_content"}
-  status:    SITE + '/messaging_manager/status',   // the page receives:  {"request_id","tag_addr","message_id","state","anchor_addr","at"}
-  tagStatus: SITE + '/tag_rev/+/status',           // the page receives:  {"anchor_addr","tag_addr","on_motion","sos","battery"}
+  request: SITE + '/messaging_manager/request',  // the page publishes: {"request_id","tag_addr","message_opcode",...args,"message_ttl_s"?,"message_attempts"?}
+  status:  SITE + '/messaging_manager/status',   // per command state change: {"request_id","tag_addr","message_id","state","anchor_addr","reason","at"}
+  tag:     SITE + '/messaging_manager/tag/+',    // retained merged state of each tag
+  sos:     SITE + '/messaging_manager/sos',      // SOS episode changes
 };
+const TAG_PREFIX = SITE + '/messaging_manager/tag/';
 const clientId = 'web-' + Math.random().toString(16).slice(2, 10);
 
+// The commands the software may ask for. confirm: a second click in the page sends it.
+const CMDS = [
+  { op: '0xE4', name: 'Pager message' },
+  { op: '0xE6', name: 'SOS required' },
+  { op: '0xE8', name: 'Time sync' },
+  { op: '0xED', name: 'Vibration' },
+  { op: '0xEB', name: 'Set address', confirm: 'address' },
+  { op: '0xEC', name: 'Erase flash', confirm: 'erase' },
+  { op: '0xFF', name: 'Reset', confirm: 'reset' },
+];
+const cmdOf = op => CMDS.find(c => c.op === op);
+
+const SOS_SOURCE = { user: 'SOS button', fall: 'fall detected', server: 'required by the server' };
+const SOS_WORDS = {
+  requested: 'SOS received, confirmation on its way',
+  confirmation_delivered: 'Confirmation delivered',
+  confirmed_on_tag: 'Tag shows: help is on the way',
+  required_by_server: 'SOS required by the server, tag in SOS',
+  lost: 'Tag silent: no status for 60 s',
+};
+const TAG_SOS_TO_EPISODE = { sending: 'requested', confirmed: 'confirmed_on_tag', required: 'required_by_server' };
+const RANK = { queued: 1, sent: 2, delivered: 3 };   // every other state is final: 4
+
 const state = {
-  msgIdx: 0, sendAll: true, selected: {}, seq: 1, popup: null, online: false,
+  cmd: '0xE4', msgIdx: 0, viber: 1, sendAll: true, selected: {}, seq: 1, popup: null, online: false, armed: null,
   tags: [], downlinks: [], uplinks: [], filter: '',   // filter: one tag address, or '' for all
+  episodes: [], sosLog: [], sosSeen: new Set(), sosEnded: new Set(),   // open SOS episodes, every SOS event, episodes seen and ended
   upTotal: 0, upSos: 0, upByTag: {}, since: Date.now(),
 };
 
@@ -275,113 +406,284 @@ function chip(cls, iconHtml, text) {
   if (text) c.append(text);
   return c;
 }
+function mapLink(g, cls) {
+  const lat = Number(g.lat), lon = Number(g.lon);
+  const a = el('a', cls || '', lat.toFixed(5) + ', ' + lon.toFixed(5));
+  a.href = 'https://www.google.com/maps?q=' + lat + ',' + lon;
+  a.target = '_blank'; a.rel = 'noopener';
+  return a;
+}
+const hasGnss = g => g && Number.isFinite(Number(g.lat)) && Number.isFinite(Number(g.lon));
+function kvItem(label, value) {
+  const s = el('span', 'it');
+  s.append(el('span', '', label));
+  if (value instanceof Node) s.append(value); else s.append(el('b', '', value));
+  return s;
+}
+
+// Rebuild a list only when what it shows changed: a click that spans a rebuild is lost.
+const built = {};
+function fill(id, sig, build) {
+  if (built[id] === sig) return;
+  built[id] = sig;
+  const c = $(id); c.replaceChildren(); build(c);
+}
 
 function targets() {
   return state.sendAll ? state.tags.map(t => t.addr) : state.tags.filter(t => state.selected[t.addr]).map(t => t.addr);
 }
+const tagOf = addr => state.tags.find(t => t.addr === addr);
+
+function buildArgs() {
+  switch (state.cmd) {
+    case '0xE4': return { message_content: state.msgIdx === MSGS.length ? $('customText').value.trim() : MSGS[state.msgIdx] };
+    case '0xE6': return { sos: { subtype: 'required', text: $('sosText').value.trim() } };
+    case '0xEB': return { new_addr: upper($('newAddr').value.trim()) };
+    case '0xED': return { viber: state.viber };
+    default: return {};
+  }
+}
+// Why the request cannot be sent yet, or ''.
+function argsProblem(args, list) {
+  if (state.cmd === '0xE4' && !args.message_content) return 'Write the message first.';
+  if (state.cmd === '0xEB') {
+    if (!isAddr(args.new_addr)) return 'New address: 4 hex digits.';
+    if (list.length !== 1) return 'Set address: select exactly one tag, two tags cannot share an address.';
+  }
+  return '';
+}
+function summary(op, args) {
+  switch (op) {
+    case '0xE4': return args.message_content || '';
+    case '0xE6':
+      if (args.sos && args.sos.subtype === 'confirmation') return 'SOS confirmation (automatic)';
+      return 'SOS required' + (args.sos && args.sos.text ? ': "' + args.sos.text + '"' : '');
+    case '0xE8': return 'Time sync';
+    case '0xED': return 'Vibration ' + (args.viber ? 'on' : 'off');
+    case '0xEB': return 'Set address to ' + args.new_addr;
+    case '0xEC': return 'Erase flash';
+    case '0xFF': return 'Reset';
+    default: return op;
+  }
+}
+function confirmText(c, list, args) {
+  const who = list.length === 1 ? list[0] : list.length + ' tags';
+  if (c.confirm === 'address') return 'Confirm address ' + list[0] + ' to ' + args.new_addr + '?';
+  return 'Confirm ' + c.confirm + ' of ' + who + '?';
+}
+const armSig = (list, args) => JSON.stringify([state.cmd, list, args]);
 
 let filterSig = null;
 
 function render() {
   const focusKey = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.fk;
+  const shown = list => state.filter ? list.filter(x => x.addr === state.filter) : list;
 
-  // Messages
-  const mo = $('msgOptions'); mo.replaceChildren();
-  MSGS.forEach((label, i) => {
+  // Command and its inputs
+  if (!$('cmd').options.length) $('cmd').replaceChildren(...CMDS.map(c => new Option(c.name + ' · ' + c.op, c.op)));
+  $('cmd').value = state.cmd;
+  document.querySelectorAll('[data-for]').forEach(e => { e.hidden = e.dataset.for !== state.cmd; });
+
+  fill('msgOptions', String(state.msgIdx), mo => MSGS.forEach((label, i) => {
     const l = el('label', 'opt' + (state.msgIdx === i ? ' on' : ''));
     const r = document.createElement('input');
     r.type = 'radio'; r.name = 'msg'; r.checked = state.msgIdx === i; r.dataset.fk = 'msg' + i;
     r.onchange = () => { state.msgIdx = i; render(); };
     l.append(r, el('span', 'grow', label));
     mo.append(l);
-  });
-
+  }));
   const custom = state.msgIdx === MSGS.length;
   $('customOpt').className = 'opt custom' + (custom ? ' on' : '');
   $('customRadio').checked = custom;
+  $('vibOnRadio').checked = state.viber === 1; $('vibOn').className = 'opt' + (state.viber === 1 ? ' on' : '');
+  $('vibOffRadio').checked = state.viber === 0; $('vibOff').className = 'opt' + (state.viber === 0 ? ' on' : '');
 
-  // Target
+  // Target: the tags the manager knows, marked when it would refuse the command
   $('allBox').checked = state.sendAll;
   $('allOpt').className = 'opt' + (state.sendAll ? ' on' : '');
-  const tr = $('tagRows'); tr.replaceChildren();
-  state.tags.forEach(t => {
+  fill('tagRows', JSON.stringify([state.sendAll, state.tags.map(t => [t.addr, !!state.selected[t.addr], t.charging, t.sos, t.anchors])]), tr => state.tags.forEach(t => {
     const on = !state.sendAll && !!state.selected[t.addr];
-    const l = el('label', 'opt' + (on ? ' on' : ''));
+    const l = el('label', 'opt tag' + (on ? ' on' : ''));
     const c = document.createElement('input');
     c.type = 'checkbox'; c.checked = on; c.dataset.fk = 'tag' + t.addr;
     c.onchange = () => toggleTag(t.addr);
-    const nx = el('span', 'nx', 'via ');
-    nx.append(el('b', '', t.anchor));
-    l.append(c, el('span', 'grow addr', t.addr), nx);
+    l.append(c, el('span', 'addr', t.addr));
+    if (t.charging) { const p = el('span', 'pill base', 'Base'); p.title = 'On the charging base: pager messages are refused'; l.append(p); }
+    if (t.sos !== 'none') { const p = el('span', 'pill sos', 'SOS'); p.title = 'In SOS: everything but SOS commands is refused'; l.append(p); }
+    const nx = el('span', 'nx');
+    if (t.anchors.length) { nx.append('via '); nx.append(el('b', '', t.anchors.join(', '))); } else nx.append('no anchor');
+    l.append(nx);
     tr.append(l);
-  });
+  }));
   $('noTags').hidden = state.tags.length > 0;
-  const n = targets().length;
-  $('targetSummary').textContent = state.sendAll
-    ? 'Target: all tags (' + state.tags.length + ')'
-    : 'Target: ' + n + (n === 1 ? ' tag selected' : ' tags selected');
-  $('send').disabled = n === 0 || !state.online || (custom && $('customText').value.trim() === '');
 
-  // Tag filter: both blocks show the same choice
+  const list = targets();
+  const n = list.length;
+  const args = buildArgs();
+  const problem = argsProblem(args, list);
+  const c = cmdOf(state.cmd);
+  if (state.armed && state.armed !== armSig(list, args)) disarm();
+  $('targetSummary').textContent = (state.sendAll
+    ? 'Target: all tags (' + state.tags.length + ')'
+    : 'Target: ' + n + (n === 1 ? ' tag selected' : ' tags selected')) + (problem && n ? ' · ' + problem : '');
+  const onBase = state.cmd === '0xE4' ? list.filter(a => (tagOf(a) || {}).charging) : [];
+  const inSos = state.cmd !== '0xE6' ? list.filter(a => ((tagOf(a) || {}).sos || 'none') !== 'none') : [];
+  const warn = [];
+  if (onBase.length) warn.push('On the charging base: ' + onBase.join(', ') + '. The manager refuses pager messages to it.');
+  if (inSos.length) warn.push('In SOS: ' + inSos.join(', ') + '. The manager refuses everything but SOS commands.');
+  $('sendWarn').hidden = !warn.length;
+  $('sendWarn').textContent = warn.join(' ');
+  const armed = !!state.armed;
+  $('send').disabled = n === 0 || !state.online || !!problem;
+  $('send').textContent = armed ? confirmText(c, list, args) : 'Send downlink';
+  $('send').className = 'send' + (armed ? ' danger' : '');
+  $('sendCancel').hidden = !armed;
+
+  // Tag filter: every block shows the same choice
   const sig = state.tags.map(t => t.addr).sort().join(',');
   if (sig !== filterSig) {           // rebuild the options only when a tag appears, so an open list is not closed
     filterSig = sig;
+    if (state.filter && !sig.split(',').includes(state.filter)) state.filter = '';
     for (const sel of [$('filterDown'), $('filterUp')]) {
       sel.replaceChildren(new Option('All tags', ''), ...sig.split(',').filter(Boolean).map(a => new Option(a, a)));
     }
   }
   $('filterDown').value = state.filter;
   $('filterUp').value = state.filter;
-  const shown = list => state.filter ? list.filter(x => x.addr === state.filter) : list;
 
   // Downlinks
-  const dl = $('downlinks'); dl.replaceChildren();
-  shown(state.downlinks).forEach(d => {
+  const dls = shown(state.downlinks);
+  fill('downlinks', JSON.stringify(dls.map(d => [d.key, d.id, d.state, d.anchor, d.sentTo, d.reason, d.delivered, d.viewed, d.notAnswered])), dl => dls.forEach(d => {
     const b = el('button', 'tr cols-down'); b.type = 'button';
     b.setAttribute('aria-label', 'View downlink JSON'); b.dataset.fk = 'dl' + d.key;
-    b.onclick = () => { state.popup = d.key; render(); };
-    const msg = el('span', 'msg', d.content);
-    msg.append(el('small', '', d.state + (d.anchor ? ' · via ' + d.anchor : '') + (d.reason ? ' · ' + d.reason : '')));
-    b.append(stamp(d.ts), el('span', 'cell-mono', d.addr), el('span', 'cell-mono', d.id === null ? '-' : String(d.id)), msg,
-      chip('sq ' + (d.delivered ? 'ok' : 'bad'), d.delivered ? ICON.ok : ICON.no),
-      chip('sq ' + (d.viewed ? 'ok' : 'bad'), d.viewed ? ICON.ok : ICON.no));
-    b.children[4].setAttribute('aria-label', d.delivered ? 'Delivered' : 'Not delivered');
-    b.children[5].setAttribute('aria-label', d.viewed ? 'Viewed' : 'Not viewed');
+    b.onclick = () => { state.popup = { kind: 'dl', key: d.key }; render(); };
+    const msg = el('span', 'msg' + (d.auto ? ' auto' : ''));
+    msg.append(el('span', 'op', d.op), el('span', 'txt', d.text));
+    const st = el('small');
+    const cls = { delivered: 'ok', viewed: 'ok', failed: 'bad', expired: 'bad', cancelled: 'bad' }[d.state] || '';
+    st.append(el('span', cls, d.state.replace('_', ' ')));
+    const via = d.state === 'sent' ? d.sentTo.join(', ') : d.anchor;
+    if (via) st.append(' · via ' + via);
+    if (d.reason) st.append(' · ' + d.reason);
+    msg.append(st);
+    const dc = chip('sq ' + (d.delivered ? 'ok' : 'bad'), d.delivered ? ICON.ok : ICON.no);
+    dc.setAttribute('aria-label', d.delivered ? 'Delivered' : 'Not delivered');
+    let vc;
+    if (d.op !== '0xE4') { vc = el('span'); vc.title = 'Not a pager message'; }
+    else if (d.viewed) { vc = chip('sq ok', ICON.ok); vc.setAttribute('aria-label', 'Viewed'); }
+    else if (d.notAnswered) { vc = chip('sq na', '', '—'); vc.title = 'not answered'; vc.setAttribute('aria-label', 'Not answered'); }
+    else { vc = chip('sq bad', ICON.no); vc.setAttribute('aria-label', 'Not viewed'); }
+    b.append(stamp(d.ts), el('span', 'cell-mono', d.addr), el('span', 'cell-mono', d.id === null ? '-' : String(d.id)), msg, dc, vc);
     dl.append(b);
-  });
-  const nDown = shown(state.downlinks).length;
-  $('noDownlinks').hidden = nDown > 0;
+  }));
+  $('noDownlinks').hidden = dls.length > 0;
   $('noDownlinks').textContent = state.downlinks.length === 0 ? 'No downlink sent yet.' : 'No downlink for this tag.';
 
+  // Tags
+  const tags = shown(state.tags).filter(t => t.st);
+  fill('tagList', JSON.stringify(tags.map(t => [t.addr, t.anchors, t.charging, t.sos, t.st.battery, t.st.on_motion, t.st.temperature_c, t.st.version, t.st.risk_total, t.st.gnss, t.st.sos])), tl => tags.forEach(t => tl.append(tagCard(t))));
+  tags.forEach(t => { const s = document.querySelector('[data-seen="' + t.addr + '"]'); if (s) s.textContent = 'seen ' + fmtTime(t.seen); });
+  $('noTagState').hidden = tags.length > 0;
+  $('noTagState').textContent = state.filter ? 'No state for this tag yet.' : 'No tag state received yet.';
+  $('tagsNote').textContent = state.filter ? 'showing ' + state.filter : 'merged state from the messaging manager';
+
   // Uplinks
-  const ul = $('uplinks'); ul.replaceChildren();
-  shown(state.uplinks).forEach(u => {
+  const ups = shown(state.uplinks);
+  fill('uplinks', ups.map(u => u.key).join(','), ul => ups.forEach(u => {
     const row = el('div', 'tr cols-up');
     const mv = chip('mov ' + (u.mov ? 'ok' : 'bad'), u.mov ? ICON.move : ICON.stop, u.mov ? 'Moving' : 'Stopped');
     mv.title = 'Motion: ' + u.mov;
     const so = chip('sos' + (u.sos ? ' on' : ''), u.sos ? ICON.sos : ICON.ok, u.sos ? 'SOS' : 'OK');
-    so.title = 'SOS: ' + u.sos;
+    so.title = 'SOS: ' + (u.sos || 'none');
     const bat = el('span', 'bat');
-    const bar = el('span', 'bar'); const fill = document.createElement('i'); fill.style.width = u.bat + '%'; bar.append(fill);
+    const bar = el('span', 'bar'); const fillBar = document.createElement('i'); fillBar.style.width = u.bat + '%'; bar.append(fillBar);
     bat.append(bar, el('span', '', u.bat + '%'));
-    row.append(stamp(u.ts), el('span', 'cell-mono', u.addr), el('span', 'cell-mono', u.anchor), mv, so, bat);
+    const an = el('span', 'cell-mono anchors');
+    (u.anchors.length ? u.anchors : ['-']).forEach(a => an.append(el('span', '', a)));
+    row.append(stamp(u.ts), el('span', 'cell-mono', u.addr), an, mv, so, bat);
     ul.append(row);
-  });
+  }));
+  $('noUplinks').hidden = !state.filter || ups.length > 0;
 
-  $('noUplinks').hidden = !state.filter || shown(state.uplinks).length > 0;
+  // SOS banner: every open episode, whatever the filter
+  const eps = state.episodes.slice().sort((a, b) => a.since - b.since);
+  fill('sosBar', JSON.stringify(eps.map(e => [e.addr, e.session, e.source, e.state, e.anchor, e.battery, e.mov, e.gnss, e.at])), bar => eps.forEach(e => bar.append(sosStrip(e))));
+  $('sosBar').hidden = eps.length === 0;
+  $('sosHist').textContent = 'SOS history' + (state.sosLog.length ? ' (' + state.sosLog.length + ')' : '');
+  $('sosHist').className = 'ghost' + (eps.length ? ' alert' : '');
 
   // Popup
-  const pop = state.popup ? state.downlinks.find(d => d.key === state.popup) : null;
-  $('popup').hidden = !pop;
-  if (pop) {
-    $('popWhen').textContent = 'Sent on ' + fmtDate(pop.ts) + ' ' + fmtTime(pop.ts);
+  const pop = state.popup;
+  const d = pop && pop.kind === 'dl' ? state.downlinks.find(x => x.key === pop.key) : null;
+  $('popup').hidden = !(d || (pop && pop.kind === 'sos'));
+  $('popDialog').className = 'dialog' + (pop && pop.kind === 'sos' ? ' wide' : '');
+  if (d) {
+    $('popTitle').textContent = 'Downlink JSON';
+    $('popWhen').textContent = (d.auto ? 'Seen on ' : 'Sent on ') + fmtDate(d.ts) + ' ' + fmtTime(d.ts);
     $('popJson').textContent = JSON.stringify({
-      request: pop.request,
-      last_status: pop.lastStatus,
+      request: d.request || '(automatic SOS confirmation, sent by the manager)',
+      last_status: d.lastStatus,
     }, null, 2);
+  } else if (pop && pop.kind === 'sos') {
+    $('popTitle').textContent = 'SOS history';
+    $('popWhen').textContent = 'Every SOS event since ' + fmtDate(state.since) + ' ' + fmtTime(state.since) + ', newest first';
+    $('popJson').textContent = state.sosLog.length ? state.sosLog.map(s =>
+      fmtDate(s.ts) + ' ' + fmtTime(s.ts) + '  ' + s.addr + '  #' + String(s.session).padEnd(4) + (s.source || '-').padEnd(7)
+      + s.state.padEnd(23) + (s.anchor || '')).join('\n') : 'No SOS event since the page opened.';
   }
 
-  if (focusKey) { const f = document.querySelector('[data-fk="' + focusKey + '"]'); if (f) f.focus(); }
+  if (focusKey) { const f = document.querySelector('[data-fk="' + focusKey + '"]'); if (f && f !== document.activeElement) f.focus(); }
+}
+
+function tagCard(t) {
+  const o = t.st;
+  const card = el('div', 'tagcard' + (t.sos !== 'none' ? ' sos' : ''));
+  const l1 = el('div', 'l1');
+  l1.append(el('span', 'addr', t.addr), el('span', 'mv', o.on_motion ? 'moving' : 'stopped'));
+  if (t.charging) l1.append(el('span', 'pill base', 'On base'));
+  if (t.sos !== 'none') l1.append(el('span', 'pill sos', 'SOS · ' + t.sos + (o.sos && o.sos.source ? ' (' + o.sos.source + ')' : '')));
+  const seen = el('span', 'seen'); seen.dataset.seen = t.addr;
+  l1.append(seen);
+
+  const bat = Math.max(0, Math.min(100, Number(o.battery) || 0));
+  const batV = el('span', 'it');
+  const mini = el('span', 'mini'); const fillBar = document.createElement('i'); fillBar.style.width = bat + '%'; mini.append(fillBar);
+  batV.append(el('span', '', 'Battery'), mini, el('b', '', bat + '%'));
+  const kv1 = el('div', 'kv');
+  kv1.append(batV,
+    kvItem('Temp', Number.isFinite(o.temperature_c) ? o.temperature_c.toFixed(1) + ' °C' : '—'),
+    kvItem('Version', o.version ? String(o.version) : '—'),
+    kvItem('Risk', o.risk_total === undefined ? '—' : String(o.risk_total)));
+  const kv2 = el('div', 'kv');
+  kv2.append(kvItem('Anchors', t.anchors.length ? t.anchors.join(', ') : 'none'));
+  if (hasGnss(o.gnss)) {
+    const a = mapLink(o.gnss, 'mono');
+    a.style.fontSize = '12px';
+    if (o.gnss_at) a.title = 'Fix at ' + fmtDate(parseTs(o.gnss_at)) + ' ' + fmtTime(parseTs(o.gnss_at)) + ', open in Google Maps';
+    kv2.append(kvItem('GNSS', a));
+  } else kv2.append(kvItem('GNSS', '—'));
+  card.append(l1, kv1, kv2);
+  return card;
+}
+
+function sosStrip(e) {
+  const s = el('div', 'sosep');
+  const big = el('span', 'big');
+  big.innerHTML = ICON.alarm;
+  big.append('SOS ', el('span', 'addr', e.addr), ' · ' + (SOS_SOURCE[e.source] || e.source || 'unknown source'));
+  s.append(big, el('span', 'what', SOS_WORDS[e.state] || e.state));
+  const meta = el('span', 'meta');
+  const item = (label, value) => { const i = el('span'); i.append(label + ' '); if (value instanceof Node) i.append(value); else i.append(el('b', '', value)); return i; };
+  if (e.battery !== undefined) meta.append(item('Battery', e.battery + '%'));
+  if (e.mov !== undefined) meta.append(item('Motion', e.mov ? 'moving' : 'stopped'));
+  meta.append(item('GNSS', hasGnss(e.gnss) ? mapLink(e.gnss, 'mono') : 'no fix'));
+  meta.append(item('Since', fmtTime(e.since)));
+  meta.append(item('Updated', fmtTime(e.at)));
+  if (e.anchor) meta.append(item('Via', e.anchor));
+  meta.append(item('Session', String(e.session)));
+  if (e.fromTag) meta.append(el('span', '', '(from the tag state)'));
+  s.append(meta);
+  return s;
 }
 
 function toggleTag(addr) {
@@ -393,8 +695,12 @@ function toggleTag(addr) {
 }
 
 function ensureTag(addr) {
-  let t = state.tags.find(x => x.addr === addr);
-  if (!t) { t = { addr, anchor: '' }; state.tags.push(t); }
+  let t = tagOf(addr);
+  if (!t) {
+    t = { addr, anchors: [], charging: false, sos: 'none', st: null, seen: 0 };
+    state.tags.push(t);
+    state.tags.sort((a, b) => a.addr < b.addr ? -1 : 1);
+  }
   return t;
 }
 
@@ -402,6 +708,10 @@ const selectCustom = () => { if (state.msgIdx !== MSGS.length) state.msgIdx = MS
 $('customRadio').onchange = () => { selectCustom(); $('customText').focus(); };
 $('customText').addEventListener('focus', selectCustom);
 $('customText').addEventListener('input', selectCustom);   // typing is intent: it selects this option
+$('vibOnRadio').onchange = () => { state.viber = 1; render(); };
+$('vibOffRadio').onchange = () => { state.viber = 0; render(); };
+$('cmd').onchange = e => { state.cmd = e.target.value; disarm(); render(); };
+for (const id of ['sosText', 'newAddr', 'ttl', 'attempts']) $(id).addEventListener('input', () => render());
 
 for (const id of ['filterDown', 'filterUp']) {
   $(id).onchange = e => { state.filter = e.target.value; render(); };
@@ -421,7 +731,7 @@ const client = mqtt.connect(CFG.url, {
 client.on('connect', () => {
   state.online = true;
   setConn('Connected to broker', 'ok');
-  client.subscribe([TOPIC.status, TOPIC.tagStatus]);
+  client.subscribe([TOPIC.status, TOPIC.tag, TOPIC.sos], { qos: 1 });
   render();
 });
 client.on('reconnect', () => { state.online = false; setConn('Reconnecting to broker...', 'err'); render(); });
@@ -429,87 +739,193 @@ client.on('offline', () => { state.online = false; setConn('No connection to bro
 client.on('close', () => { state.online = false; render(); });
 client.on('error', err => { setConn('Error: ' + err.message, 'err'); });
 
-client.on('message', (topic, payload) => {
-  let o;
-  try { o = JSON.parse(payload.toString()); } catch (e) { return; }
-  if (!o || typeof o !== 'object') return;
-  if (topic === TOPIC.status) {
-    const d = state.downlinks.find(x => x.request_id === o.request_id);
-    if (!d) return;                                        // a request made by another session
-    if (Number.isInteger(o.message_id)) d.id = o.message_id;
-    d.state = String(o.state);
-    if (o.anchor_addr) d.anchor = String(o.anchor_addr).toUpperCase();
-    d.reason = o.reason ? String(o.reason) : '';
-    d.lastStatus = o;
-    if (d.state === 'delivered') d.delivered = true;
-    if (d.state === 'viewed') { d.delivered = true; d.viewed = true; }
-  } else {
-    const m = topic.match(/\/tag_rev\/([^/]+)\/status$/);
-    const addr = String(o.tag_addr || '').toUpperCase();
-    if (!m || !/^[0-9A-F]{4}$/.test(addr)) return;
-    const anchor = m[1].toUpperCase();                      // the topic is the source of truth
-    ensureTag(addr).anchor = anchor;
-    state.upTotal++; if (o.sos) state.upSos++;
+let upSeq = 0;
+
+function onStatus(o) {
+  const rid = String(o.request_id || '');
+  let d = state.downlinks.find(x => x.request_id === rid);
+  if (!d) {
+    const m = rid.match(/^sos-([0-9A-Fa-f]{4})-(\d+)-/);
+    if (!m) return;                                      // a request made by another session
+    // The manager's own SOS confirmation for this tag: shown, not counted as the page's request.
+    d = { key: 'a' + state.seq++, ts: parseTs(o.at), request_id: rid, addr: upper(o.tag_addr || m[1]), id: null, op: '0xE6',
+      text: 'SOS confirmation (automatic) · session ' + m[2], auto: true, state: '', rank: 0, anchor: '', sentTo: [], reason: '',
+      request: null, delivered: false, viewed: false, notAnswered: false, lastStatus: null };
+    state.downlinks.unshift(d);
+  }
+  const st = String(o.state || '');
+  const rank = RANK[st] || 4;
+  if (rank < d.rank) return;                             // a late or repeated event never moves a command back
+  d.rank = rank;
+  if (Number.isInteger(o.message_id)) d.id = o.message_id;
+  d.state = st;
+  d.anchor = o.anchor_addr ? upper(o.anchor_addr) : '';
+  if (st === 'sent' && d.anchor && !d.sentTo.includes(d.anchor)) d.sentTo.push(d.anchor);
+  d.reason = o.reason ? String(o.reason) : '';
+  d.lastStatus = o;
+  if (st === 'delivered' || st === 'viewed' || st === 'not_answered') d.delivered = true;
+  if (st === 'viewed') d.viewed = true;
+  if (st === 'not_answered') d.notAnswered = true;
+}
+
+function onTag(addr, o, retained) {
+  const t = ensureTag(addr);
+  t.st = o;
+  t.anchors = Array.isArray(o.anchors) ? o.anchors.map(upper) : [];
+  t.seen = parseTs(o.last_seen);
+  t.charging = !!o.charging;
+  t.sos = (o.sos && o.sos.state) ? String(o.sos.state) : 'none';
+  if (!retained) {                                       // a retained copy is a state from before the page opened
+    state.upTotal++; if (t.sos !== 'none') state.upSos++;
     state.upByTag[addr] = (state.upByTag[addr] || 0) + 1;
-    const bat = Math.max(0, Math.min(100, Number(o.battery) || 0));
-    state.uplinks = [{ ts: Date.now(), addr, anchor, mov: o.on_motion ? 1 : 0, sos: o.sos ? 1 : 0, bat }, ...state.uplinks].slice(0, 200);
+  }
+  const bat = Math.max(0, Math.min(100, Number(o.battery) || 0));
+  state.uplinks = [{ key: ++upSeq, ts: t.seen, addr, anchors: t.anchors, mov: o.on_motion ? 1 : 0, sos: t.sos !== 'none' ? t.sos : '', bat },
+    ...state.uplinks].slice(0, 200);
+  syncEpisode(t);
+}
+
+// The SOS topic is not retained: the tag state opens an episode the page did not see start,
+// and closes one whose "ended" it missed. The manager's events stay the reference.
+function syncEpisode(t) {
+  const o = t.st, s = o.sos || {};
+  if (t.sos === 'none') {
+    state.episodes = state.episodes.filter(e => e.addr !== t.addr || t.seen <= e.at);
+    return;
+  }
+  const session = Number(s.session) || 0;
+  let e = state.episodes.find(x => x.addr === t.addr && x.session === session);
+  if (!e) {
+    if (state.sosEnded.has(t.addr + '#' + session)) return;   // a copy older than the "ended" event
+    e = { addr: t.addr, session, since: t.seen, at: t.seen, fromTag: true, source: s.source || (t.sos === 'required' ? 'server' : ''),
+      state: TAG_SOS_TO_EPISODE[t.sos] || 'requested', anchor: t.anchors[0] || '' };
+    state.episodes = state.episodes.filter(x => x.addr !== t.addr);
+    state.episodes.push(e);
+    state.sosSeen.add(t.addr + '#' + session);
+  } else if (e.fromTag && TAG_SOS_TO_EPISODE[t.sos]) e.state = TAG_SOS_TO_EPISODE[t.sos];
+  if (t.seen >= e.at) {                                  // the latest data of the tag in SOS
+    e.battery = Math.max(0, Math.min(100, Number(o.battery) || 0));
+    e.mov = o.on_motion ? 1 : 0;
+    if (hasGnss(o.gnss)) e.gnss = o.gnss;
+  }
+}
+
+function onSos(o) {
+  const addr = upper(o.tag_addr);
+  if (!isAddr(addr)) return;
+  const session = Number(o.session) || 0, at = parseTs(o.at), st = String(o.state || '');
+  state.sosLog = [{ ts: at, addr, session, source: o.source ? String(o.source) : '', state: st, anchor: o.anchor_addr ? upper(o.anchor_addr) : '' }, ...state.sosLog].slice(0, 500);
+  state.sosSeen.add(addr + '#' + session);
+  const e0 = state.episodes.find(x => x.addr === addr && x.session === session);
+  state.episodes = state.episodes.filter(x => x.addr !== addr || x.session === session);   // a new session ends the older one
+  if (st === 'ended') { state.sosEnded.add(addr + '#' + session); state.episodes = state.episodes.filter(x => x !== e0); return; }
+  const e = e0 || { addr, session, since: at };
+  if (!e0) state.episodes.push(e);
+  Object.assign(e, { state: st, source: o.source ? String(o.source) : (e.source || ''), anchor: o.anchor_addr ? upper(o.anchor_addr) : (e.anchor || ''), at: Math.max(at, e.at || 0), fromTag: false });
+  if (Number.isFinite(o.battery)) e.battery = o.battery;
+  if (o.on_motion !== undefined) e.mov = o.on_motion ? 1 : 0;
+  if (hasGnss(o.gnss)) e.gnss = o.gnss;
+}
+
+client.on('message', (topic, payload, packet) => {
+  if (topic.startsWith(TAG_PREFIX)) {
+    const addr = upper(topic.slice(TAG_PREFIX.length));
+    if (!isAddr(addr)) return;
+    if (!payload.length) {                                 // retained state cleared: the manager forgot the tag
+      state.tags = state.tags.filter(t => t.addr !== addr);
+      delete state.selected[addr];
+      render();
+      return;
+    }
+    let o; try { o = JSON.parse(payload.toString()); } catch (e) { return; }
+    if (!o || typeof o !== 'object') return;
+    onTag(addr, o, !!(packet && packet.retain));
+  } else {
+    let o; try { o = JSON.parse(payload.toString()); } catch (e) { return; }
+    if (!o || typeof o !== 'object') return;
+    if (topic === TOPIC.status) onStatus(o);
+    else if (topic === TOPIC.sos) onSos(o);
+    else return;
   }
   render();
 });
 
-// One request per tag; the manager answers on the status topic with the id it assigned.
+// ---- Send: one request per tag; the manager answers on the status topic with the id it assigned ----
+let armTimer = null;
+function disarm() { state.armed = null; clearTimeout(armTimer); }
+
 $('send').onclick = () => {
   const list = targets();
-  if (!list.length || !state.online) return;
+  const args = buildArgs();
+  if (!list.length || !state.online || argsProblem(args, list)) return;
+  const c = cmdOf(state.cmd);
+  const sig = armSig(list, args);
+  if (c.confirm && state.armed !== sig) {                // dangerous commands: the second click sends
+    state.armed = sig;
+    clearTimeout(armTimer);
+    armTimer = setTimeout(() => { state.armed = null; render(); }, 10000);
+    render();
+    return;
+  }
+  disarm();
   const ts = Date.now();
+  const ttl = $('ttl').value.trim(), attempts = $('attempts').value.trim();
   const created = list.map(addr => {
     const request_id = 'sw-' + ts.toString(36) + '-' + state.seq;
-    const m = { key: 'd' + state.seq++, ts, request_id, addr, id: null, opcode: '0xE4', content: state.msgIdx === MSGS.length ? $('customText').value.trim() : MSGS[state.msgIdx],
-      state: 'waiting for manager', anchor: null, reason: '', request: null, delivered: false, viewed: false, lastStatus: null };
-    const req = { request_id, tag_addr: addr, message_opcode: m.opcode, message_content: m.content };
-    const ttl = $('ttl').value.trim(), attempts = $('attempts').value.trim();
+    const req = { request_id, tag_addr: addr, message_opcode: state.cmd, ...JSON.parse(JSON.stringify(args)) };
     if (ttl !== '') req.message_ttl_s = Number(ttl);            // the manager rejects values out of range
     if (attempts !== '') req.message_attempts = Number(attempts);
-    m.request = req;
+    const m = { key: 'd' + state.seq++, ts, request_id, addr, id: null, op: state.cmd, text: summary(state.cmd, args), auto: false,
+      state: 'waiting for manager', rank: 0, anchor: '', sentTo: [], reason: '', request: req,
+      delivered: false, viewed: false, notAnswered: false, lastStatus: null };
     client.publish(TOPIC.request, JSON.stringify(req), { qos: 1 });
     return m;
   });
   state.downlinks = [...created.slice().reverse(), ...state.downlinks];
   render();
 };
+$('sendCancel').onclick = () => { disarm(); render(); };
 
 // ---- Report ----
 const pct = (n, total) => total ? ' (' + Math.round(100 * n / total) + '%)' : '';
 const stampFull = ts => fmtDate(ts) + '/' + new Date(ts).getFullYear() + ' ' + fmtTime(ts);
 
 function buildReport() {
-  const dl = state.downlinks;
+  const dl = state.downlinks.filter(d => !d.auto);        // the page's own requests
+  const auto = state.downlinks.filter(d => d.auto);
+  const pager = dl.filter(d => d.op === '0xE4');
+  const count = s => dl.filter(d => d.state === s).length;
   const delivered = dl.filter(d => d.delivered).length;
-  const viewed = dl.filter(d => d.viewed).length;
-  const expired = dl.filter(d => d.state === 'expired').length;
-  const failed = dl.filter(d => d.state === 'failed').length;
-  const replaced = dl.filter(d => d.state === 'superseded').length;
+  const viewed = pager.filter(d => d.viewed).length;
+  const notAnswered = pager.filter(d => d.notAnswered).length;
   const L = [];
+  const line = (label, value) => L.push(label.padEnd(26) + value);
   L.push('TAG MESSAGING REPORT');
   L.push('Generated on: ' + stampFull(Date.now()));
   L.push('Counting since: ' + stampFull(state.since) + ' (page opened)');
   L.push('');
-  L.push('Tag status received:      ' + state.upTotal);
-  L.push('  with SOS active:        ' + state.upSos);
-  L.push('Downlinks requested:      ' + dl.length);
-  L.push('Downlinks delivered:      ' + delivered + pct(delivered, dl.length));
-  L.push('Downlinks viewed:         ' + viewed + pct(viewed, dl.length));
-  L.push('Downlinks expired:        ' + expired + pct(expired, dl.length));
-  L.push('Downlinks failed:         ' + failed + pct(failed, dl.length));
-  L.push('Downlinks replaced:       ' + replaced + pct(replaced, dl.length));
+  line('Tag status received:', state.upTotal);
+  line('  with SOS active:', state.upSos);
+  line('SOS episodes:', state.sosSeen.size);
+  line('Downlinks requested:', dl.length);
+  line('Downlinks delivered:', delivered + pct(delivered, dl.length));
+  line('Downlinks cancelled:', count('cancelled') + pct(count('cancelled'), dl.length));
+  line('Downlinks expired:', count('expired') + pct(count('expired'), dl.length));
+  line('Downlinks failed:', count('failed') + pct(count('failed'), dl.length));
+  line('Downlinks superseded:', count('superseded') + pct(count('superseded'), dl.length));
+  line('Pager messages:', pager.length);
+  line('  viewed:', viewed + pct(viewed, pager.length));
+  line('  not answered:', notAnswered + pct(notAnswered, pager.length));
+  line('SOS confirmations (auto):', auto.length + ', delivered ' + auto.filter(d => d.delivered).length);
   L.push('');
   L.push('PER TAG');
-  L.push('Tag           Status   Downlinks  Delivered  Viewed');
-  const addrs = [...new Set([...state.tags.map(t => t.addr), ...Object.keys(state.upByTag)])].sort();
+  L.push('Tag           Status   Downlinks  Delivered  Viewed  SOS');
+  const addrs = [...new Set([...state.tags.map(t => t.addr), ...Object.keys(state.upByTag), ...dl.map(d => d.addr)])].sort();
   addrs.forEach(a => {
     const mine = dl.filter(d => d.addr === a);
+    const sos = [...state.sosSeen].filter(k => k.startsWith(a + '#')).length;
     L.push(a.padEnd(14) + String(state.upByTag[a] || 0).padEnd(9) + String(mine.length).padEnd(11)
-      + String(mine.filter(d => d.delivered).length).padEnd(11) + mine.filter(d => d.viewed).length);
+      + String(mine.filter(d => d.delivered).length).padEnd(11) + String(mine.filter(d => d.viewed).length).padEnd(8) + sos);
   });
   if (!addrs.length) L.push('(no tags)');
   return L;
@@ -546,6 +962,7 @@ $('repPdf').onclick = () => {
   doc.save('messaging-report-' + fileStamp() + '.pdf');
 };
 
+$('sosHist').onclick = () => { state.popup = { kind: 'sos' }; render(); };
 const closePopup = () => { state.popup = null; render(); };
 $('popBack').onclick = closePopup;
 $('popClose').onclick = closePopup;
