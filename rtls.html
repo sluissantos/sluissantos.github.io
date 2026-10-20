@@ -1,0 +1,1050 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RTLS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<style>
+  :root {
+    --bg:#12161a; --panel:#1a2025; --line:#262e35; --line2:#303a42; --line3:#3a444d;
+    --fg:#e6eaed; --muted:#9aa6b0; --accent:#f5a524; --accent-bg:rgba(245,165,36,.10);
+    --ok-bg:rgba(52,199,120,.18); --ok-fg:#7be8ab; --bad-bg:rgba(255,92,92,.18); --bad-fg:#ff9d9d;
+    --sos:#c93c41; --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  html, body { height:100%; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--sans); font-size:14px; display:flex; flex-direction:column; }
+  button { font-family:inherit; cursor:pointer; }
+  button:focus-visible, input:focus-visible, select:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  .mono { font-family:var(--mono); }
+  .muted { color:var(--muted); }
+  a { color:var(--accent); }
+
+  header { flex-shrink:0; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; padding:16px; border-bottom:1px solid var(--line); }
+  header .title { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 16px; }
+  header .title small { font:400 12px var(--mono); color:var(--muted); }
+  h1 { margin:0; font-size:22px; font-weight:600; letter-spacing:.01em; }
+  .pages { display:flex; gap:14px; font-size:13px; }
+  .pages a { color:var(--muted); text-decoration:none; }
+  .pages a:hover { color:var(--fg); }
+  .pages a[aria-current] { color:var(--accent); }
+  header .right { display:flex; flex-wrap:wrap; align-items:center; gap:8px 20px; }
+  header .btns { display:flex; flex-wrap:wrap; gap:8px; }
+  .conn { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); }
+  .conn i { width:10px; height:10px; border-radius:50%; background:var(--muted); flex-shrink:0; }
+  .conn.ok { color:var(--ok-fg); } .conn.ok i { background:var(--ok-fg); }
+  .conn.err { color:var(--bad-fg); } .conn.err i { background:var(--bad-fg); }
+
+  main { flex:1; min-height:0; padding:16px; display:grid; gap:20px; grid-template-columns:minmax(0,1fr); align-content:start; }
+  .col { display:flex; flex-direction:column; gap:20px; min-width:0; }
+  @media (max-width:1099px) {
+    html, body { height:auto; min-height:100%; }
+    #mapSec { order:-1; }   /* on a phone the map comes first */
+  }
+  @media (min-width:1100px) {
+    main { padding:24px; grid-template-columns:320px minmax(0,1.7fr) minmax(0,1fr); align-content:stretch; }
+    section, .col { min-height:0; }
+    #listSec .scroll { flex:1 1 0; max-height:none; }
+    #areaList { flex:0 1 auto !important; max-height:30% !important; }
+    #tagsSec { flex:1 1 0; }
+    #tagsSec .scroll { flex:1; max-height:none; }
+    #resSec { flex:0 1 auto; max-height:34%; }
+    .mapwrap { flex:1; height:auto; min-height:300px; }
+  }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; display:flex; flex-direction:column; gap:12px; min-width:0; }
+  h2 { margin:0; font-size:15px; font-weight:600; }
+  h3.sub { margin:4px 0 0; font-size:12px; font-weight:500; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; }
+  .headrow { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:4px 12px; }
+  .headrow small { font-size:12px; color:var(--muted); }
+  .filter { height:36px; max-width:100%; padding:0 10px; font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line3); border-radius:6px; }
+
+  .scroll { overflow-y:auto; max-height:420px; scrollbar-color:#3a444d #1a2025; display:flex; flex-direction:column; }
+  .scroll > * { flex-shrink:0; }
+  .tr { display:grid; column-gap:10px; align-items:center; min-height:48px; padding:6px 8px; border-bottom:1px solid var(--line); font-size:13px; width:100%; }
+  button.tr { border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--fg); text-align:left; }
+  button.tr:hover { background:#242c33; }
+  .cols-area { grid-template-columns:44px minmax(0,1fr) auto; }
+  .cols-sensor { grid-template-columns:44px 74px minmax(0,1fr); }
+  .cols-res { grid-template-columns:60px 36px minmax(0,1fr); align-items:start; min-height:40px; }
+  .t { display:flex; flex-direction:column; }
+  .t b { font:400 12px var(--mono); }
+  .t small { font-size:11px; color:var(--muted); }
+  .cell-mono { font:400 12px var(--mono); }
+  .cell-sub { display:flex; flex-direction:column; min-width:0; }
+  .cell-sub small { color:var(--muted); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .cell-sub b { font:400 12px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .changed { box-shadow:inset 3px 0 0 var(--accent); }
+
+  .chip { display:inline-flex; align-items:center; justify-content:center; gap:4px; height:22px; padding:0 8px; border-radius:11px; font-size:11px; font-weight:600; letter-spacing:.03em; }
+  .chip.ok { background:var(--ok-bg); color:var(--ok-fg); }
+  .chip.bad { background:var(--bad-bg); color:var(--bad-fg); }
+  .chip.na { background:var(--line2); color:var(--muted); }
+  .pill { display:inline-flex; align-items:center; height:20px; padding:0 7px; border-radius:10px; font-size:11px; font-weight:600; letter-spacing:.03em; white-space:nowrap; }
+  .pill.base { background:rgba(245,165,36,.16); color:var(--accent); }
+  .pill.grey { background:var(--line2); color:var(--muted); }
+
+  .tagcard { border:1px solid var(--line2); border-radius:6px; padding:8px 10px; display:flex; flex-direction:column; gap:6px; background:transparent; color:var(--fg); text-align:left; width:100%; }
+  .tagcard + .tagcard { margin-top:6px; }
+  .tagcard { cursor:pointer; }
+  .tagcard:hover { background:#20272d; }
+  .tagcard .kv .ghost { height:28px; margin-left:auto; font-size:12px; }
+  .tagcard.on { border-color:var(--accent); background:var(--accent-bg); }
+  .tagcard.stale { opacity:.55; }
+  .tagcard .l1 { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; }
+  .tagcard .dot { width:10px; height:10px; border-radius:50%; flex-shrink:0; }
+  .tagcard .addr { font:500 14px var(--mono); margin-right:2px; }
+  .tagcard .seen { margin-left:auto; font:400 12px var(--mono); color:var(--muted); }
+  .kv { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; font-size:12px; color:var(--muted); }
+  .kv .it { display:inline-flex; align-items:center; gap:5px; }
+  .kv b { font:400 12px var(--mono); color:var(--fg); }
+  .kv b.bad { color:var(--bad-fg); }
+
+  .tabs { display:flex; flex-wrap:wrap; gap:6px; }
+  .tab { height:32px; padding:0 12px; border:1px solid var(--line2); border-radius:6px; background:transparent; color:var(--fg); font:500 13px var(--mono); }
+  .tab:hover { background:#242c33; }
+  .tab.on { border-color:var(--accent); background:var(--accent-bg); color:var(--accent); }
+  .toggles { display:flex; flex-wrap:wrap; gap:6px 14px; font-size:12px; color:var(--muted); }
+  .toggles label { display:inline-flex; align-items:center; gap:6px; cursor:pointer; min-height:32px; }
+  .toggles input { width:16px; height:16px; margin:0; accent-color:var(--accent); }
+  .filter.small { height:32px; font-size:12px; padding:0 6px; margin-left:-6px; }
+  .mapwrap { position:relative; height:60vh; min-height:280px; border:1px solid var(--line2); border-radius:6px; background:#0f1316; overflow:hidden; touch-action:none; }
+  .mapwrap svg { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .mapwrap .hint { position:absolute; left:12px; bottom:10px; font-size:12px; color:var(--muted); pointer-events:none; }
+  .mapwrap .zoom { position:absolute; right:10px; top:10px; display:flex; flex-direction:column; gap:6px; }
+  .mapwrap .zoom button { width:36px; height:36px; border:1px solid var(--line3); border-radius:6px; background:rgba(26,32,37,.92); color:var(--fg); font:500 16px var(--mono); }
+  .mapwrap .zoom button:hover { background:#2a333b; }
+  .legend { display:flex; flex-wrap:wrap; gap:4px 16px; font-size:12px; color:var(--muted); }
+  .legend svg { vertical-align:-2px; margin-right:4px; }
+
+  .field { display:flex; flex-direction:column; gap:6px; min-width:0; }
+  .grid2 { display:grid; grid-template-columns:1fr 1fr; gap:10px; }
+  .grid3 { display:grid; grid-template-columns:1fr 1fr 1fr; gap:10px; }
+  .inp { font:inherit; color:var(--fg); background:var(--bg); border:1px solid var(--line2); border-radius:6px; height:40px; padding:0 10px; width:100%; min-width:0; }
+  .inp::placeholder { color:var(--muted); }
+  .inp.mono { font-family:var(--mono); }
+  .inp.up { text-transform:uppercase; letter-spacing:.08em; }
+  .inp.up::placeholder { text-transform:none; letter-spacing:0; }
+  .inp.bad { border-color:var(--bad-fg); }
+  .field > .lab { font-size:12px; color:var(--muted); }
+  .field .note { font-size:12px; color:var(--muted); line-height:1.4; }
+  .opt { display:flex; align-items:center; gap:10px; min-height:40px; padding:0 12px; border-radius:6px; cursor:pointer; border:1px solid var(--line2); background:transparent; }
+  .opt.on { border-color:var(--accent); background:var(--accent-bg); }
+  .opt input { margin:0; width:16px; height:16px; accent-color:var(--accent); }
+  .pair { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .pair.three { grid-template-columns:1fr 1fr 1fr; }
+  .empty { margin:8px 0 0; font-size:13px; color:var(--muted); line-height:1.4; }
+  .row { display:flex; flex-wrap:wrap; gap:8px; }
+  .send-wrap { display:flex; flex-direction:column; gap:8px; }
+  .send-wrap > span { font-size:12px; color:var(--muted); line-height:1.4; }
+  .send-wrap .warn { color:var(--accent); }
+  .send-wrap .err { color:var(--bad-fg); white-space:pre-wrap; font:400 12px/1.5 var(--mono); }
+  .send-row { display:flex; gap:8px; }
+  .send { flex:1; height:48px; border:0; border-radius:6px; background:var(--accent); color:var(--bg); font-size:15px; font-weight:600; }
+  .send:hover:not(:disabled) { background:#ffb936; }
+  .send:disabled { opacity:.4; cursor:default; }
+  .send.danger { background:var(--sos); color:#fff; }
+  .send-row .ghost { height:48px; }
+  .ghost { height:36px; padding:0 12px; border:1px solid var(--line3); border-radius:6px; background:transparent; color:var(--fg); font-size:13px; }
+  .ghost:hover:not(:disabled) { background:#2a333b; }
+  .ghost:disabled { opacity:.4; cursor:default; }
+  .ghost.danger { border-color:var(--sos); color:var(--bad-fg); }
+  .ghost.armed { background:var(--sos); color:#fff; border-color:var(--sos); }
+  .res-msg { font-size:12px; line-height:1.45; overflow-wrap:anywhere; white-space:pre-wrap; }
+  .res-msg.bad { color:var(--bad-fg); }
+  .res-msg small { display:block; color:var(--muted); }
+
+  .overlay { position:fixed; inset:0; display:flex; align-items:center; justify-content:center; padding:16px; z-index:10; }
+  .overlay .back { position:absolute; inset:0; border:0; background:rgba(8,10,12,.72); cursor:default; }
+  .dialog { position:relative; width:min(520px,100%); max-height:100%; overflow-y:auto; background:var(--panel); border:1px solid var(--line3); border-radius:10px; padding:20px; display:flex; flex-direction:column; gap:14px; box-shadow:0 24px 60px rgba(0,0,0,.5); }
+  .dialog.wide { width:min(720px,100%); }
+  .dialog h3 { margin:0; font-size:16px; font-weight:600; }
+  .dialog .when { font-size:12px; color:var(--muted); }
+  .dialog .top { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+  .dialog .close { width:44px; height:44px; margin:-8px -8px 0 0; border:0; border-radius:6px; background:transparent; color:var(--fg); display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+  .dialog .close:hover { background:#2a333b; }
+  .dialog .problem { font-size:12px; color:var(--bad-fg); line-height:1.4; }
+  pre { margin:0; padding:16px; background:var(--bg); border:1px solid var(--line2); border-radius:6px; font:400 12px/1.6 var(--mono); color:#d7dde2; white-space:pre-wrap; overflow-wrap:anywhere; overflow-y:auto; min-height:0; max-height:60vh; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="title">
+    <h1>RTLS</h1>
+    <nav class="pages" aria-label="Test pages"><a href="messaging.html">Messaging</a><a href="rtls.html" aria-current="page">RTLS</a></nav>
+    <small id="siteName"></small>
+  </div>
+  <div class="right">
+    <span class="btns">
+      <button class="ghost" id="viewJson" type="button">Lists JSON</button>
+      <button class="ghost" id="clearTracks" type="button">Clear tracks</button>
+    </span>
+    <span class="conn" id="conn" role="status"><i></i><span id="connText">Connecting to broker...</span></span>
+  </div>
+</header>
+
+<main>
+  <section id="listSec" aria-labelledby="h-list">
+    <div class="headrow">
+      <h2 id="h-list">Sensor list</h2>
+      <small>edit here, then send to the engine</small>
+    </div>
+    <h3 class="sub">Areas</h3>
+    <div class="scroll" id="areaList"></div>
+    <p class="empty" id="noAreas" hidden>No area yet.</p>
+    <h3 class="sub">Sensors</h3>
+    <div class="scroll" id="sensorList"></div>
+    <p class="empty" id="noSensors" hidden>No sensor yet.</p>
+    <div class="row">
+      <button class="ghost" id="addArea" type="button">+ Area</button>
+      <button class="ghost" id="addSensor" type="button">+ Sensor</button>
+    </div>
+    <div class="send-wrap">
+      <span id="draftSummary"></span>
+      <span class="warn" id="draftWarn" hidden></span>
+      <span class="err" id="draftErr" hidden></span>
+      <div class="send-row">
+        <button class="send" id="sendLists" type="button">Send lists</button>
+        <button class="ghost" id="discard" type="button">Discard</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="mapSec" aria-labelledby="h-map">
+    <div class="headrow">
+      <h2 id="h-map">Map</h2>
+      <div class="tabs" id="areaTabs" role="tablist" aria-label="Trilateration area"></div>
+    </div>
+    <div class="toggles">
+      <label><input type="checkbox" id="tTracks" checked> Tracks</label>
+      <select class="filter small" id="trailLen" aria-label="Track length on the map">
+        <option value="10">last 10 s</option>
+        <option value="60">last 1 min</option>
+        <option value="600">last 10 min</option>
+      </select>
+      <label><input type="checkbox" id="tEllipses" checked> Error ellipses</label>
+      <label><input type="checkbox" id="tTruth" checked> Simulator truth</label>
+      <label><input type="checkbox" id="tLabels" checked> Labels</label>
+    </div>
+    <div class="mapwrap" id="mapWrap">
+      <svg id="map" aria-label="Map of the area"></svg>
+      <div class="zoom">
+        <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
+        <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
+        <button type="button" id="zoomFit" aria-label="Fit the area" title="Fit">⤢</button>
+      </div>
+      <span class="hint" id="mapHint"></span>
+    </div>
+    <div class="legend">
+      <span><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1l5 9H1z" fill="none" stroke="#9aa6b0" stroke-width="1.5"/></svg>anchor</span>
+      <span><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="#f5a524"/></svg>tag</span>
+      <span><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="none" stroke="#e6eaed" stroke-dasharray="2 2"/></svg>simulator truth</span>
+      <span id="gridNote"></span>
+    </div>
+  </section>
+
+  <div class="col">
+    <section id="tagsSec" aria-labelledby="h-tags">
+      <div class="headrow">
+        <h2 id="h-tags">Tags</h2>
+        <select class="filter" id="tagScope" aria-label="Tags to list">
+          <option value="area">This area</option>
+          <option value="all">All areas</option>
+        </select>
+      </div>
+      <div class="scroll" id="tagList"></div>
+      <p class="empty" id="noTagsMsg">No position received yet.</p>
+    </section>
+
+    <section id="resSec" aria-labelledby="h-res">
+      <div class="headrow">
+        <h2 id="h-res">Engine answers</h2>
+        <small>changes to the lists</small>
+      </div>
+      <div class="scroll" id="resList"></div>
+      <p class="empty" id="noRes">No answer yet.</p>
+    </section>
+  </div>
+</main>
+
+<div class="overlay" id="popup" hidden>
+  <button class="back" id="popBack" type="button" aria-label="Close"></button>
+  <div class="dialog" id="popDialog" role="dialog" aria-labelledby="popTitle">
+    <div class="top">
+      <div>
+        <h3 id="popTitle"></h3>
+        <span class="when" id="popWhen"></span>
+      </div>
+      <button class="close" id="popClose" type="button" aria-label="Close window">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 3l10 10M13 3L3 13"/></svg>
+      </button>
+    </div>
+    <div id="popBody" style="display:flex;flex-direction:column;gap:14px;min-height:0"></div>
+  </div>
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const pad = n => String(n).padStart(2, '0');
+const fmtTime = ts => { const d = new Date(ts); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); };
+const fmtDate = ts => { const d = new Date(ts); return pad(d.getDate()) + '/' + pad(d.getMonth() + 1); };
+const upper = v => String(v || '').trim().toUpperCase();
+const isAddr = a => /^[0-9A-F]{4}$/.test(a);
+const isArea = a => /^[A-Z0-9][A-Z0-9_-]{0,15}$/.test(a);
+const parseTs = s => { const t = Date.parse(s); return Number.isFinite(t) ? t : Date.now(); };
+const num = v => (v === '' || v === null || v === undefined) ? undefined : Number(v);
+const has = v => v !== undefined && v !== null && v !== '';
+const fix = (v, n) => Number(v).toFixed(n);
+
+// Test broker: public credentials on purpose (same as messaging.html). For a local broker, open
+// rtls.html?url=ws://localhost:9001&user= (an empty user connects without credentials).
+const qs = new URLSearchParams(location.search);
+const CFG = {
+  url: qs.get('url') || 'wss://8ee07f68d14341e282ad0f17e05ca521.s1.eu.hivemq.cloud:8884/mqtt',
+  username: qs.has('user') ? qs.get('user') : 'username',
+  password: qs.has('pass') ? qs.get('pass') : 'password',
+};
+// This page plays the software of the RTLS engine. See rtls_engine/README.md for the contract.
+const SITE = qs.get('site') || 'lpx/demo/bh';
+const TOPIC = {
+  config:   SITE + '/rtls/config',          // retained lists in force: {"areas":[...],"sensors":[...]}
+  set:      SITE + '/rtls/config/set',      // the page publishes: {"request_id","config":{...}}
+  result:   SITE + '/rtls/config/result',   // answer to a set, and changes made to the file by hand
+  position: SITE + '/rtls/position/+',      // tag positions
+  truth:    SITE + '/rangesim/truth/+',     // true positions of the simulated tags
+};
+const clientId = 'web-' + Math.random().toString(16).slice(2, 10);
+const TRACK_MAX = 1200;            // points kept per tag for the CSV export: 10 min at 2 per second
+const STALE_MS = 10000;            // a tag without a position for this long is drawn faded
+const SOURCES = ['planta', 'trena', 'laser', 'celular', 'rtk', 'gnss sensor', 'autocalibração'];
+const COLORS = ['#f5a524', '#4cc9f0', '#7be8ab', '#ff9d9d', '#c3a6ff', '#ffd166', '#5ad1c4', '#f28fd1'];
+const colorOf = addr => COLORS[parseInt(addr, 16) % COLORS.length];
+
+const state = {
+  online: false,
+  cfg: null,          // lists in force, from the engine
+  draft: null,        // edited copy of the lists, null when nothing changed
+  area: '',           // area on the map
+  tags: {},           // addr -> { addr, pos, track:[{ts,x,y,area,sigma,mode}], seen }
+  truth: {},          // addr -> { x, y, area, ts }
+  selected: '',
+  results: [],
+  pending: null,      // request_id of the last set, until the engine answers
+  sendErr: '',
+  popup: null,
+  armed: '',          // key of a remove button waiting for its second click
+  view: null,         // map zoom and pan: { cx, cy, scale } in metres, null = fit
+};
+
+const lists = () => state.draft || state.cfg || { areas: [], sensors: [] };
+const clone = o => JSON.parse(JSON.stringify(o));
+const editable = () => state.draft || (state.draft = clone(state.cfg || { areas: [], sensors: [] }));
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+function stamp(ts) {
+  const t = el('span', 't');
+  t.append(el('b', '', fmtTime(ts)), el('small', '', fmtDate(ts)));
+  return t;
+}
+function kvItem(label, value, cls) {
+  const s = el('span', 'it');
+  s.append(el('span', '', label));
+  if (value instanceof Node) s.append(value); else s.append(el('b', cls || '', value));
+  return s;
+}
+// Rebuild a list only when what it shows changed: a click that spans a rebuild is lost.
+const built = {};
+function fill(id, sig, build) {
+  if (built[id] === sig) return;
+  built[id] = sig;
+  const c = $(id); c.replaceChildren(); build(c);
+}
+
+// ---- Geometry: the same local frame as the engine (internal/geo) ----
+const WGS84_A = 6378137.0, WGS84_E2 = 6.69437999014e-3, RAD = Math.PI / 180;
+function radii(lat) {
+  const s = Math.sin(lat * RAD), w = 1 - WGS84_E2 * s * s;
+  return { m: WGS84_A * (1 - WGS84_E2) / (w * Math.sqrt(w)), n: WGS84_A / Math.sqrt(w) };
+}
+function toLocal(o, lat, lon) {
+  const { m, n } = radii(o.lat);
+  const east = (lon - o.lon) * RAD * n * Math.cos(o.lat * RAD), north = (lat - o.lat) * RAD * m;
+  const th = (o.rotation_deg || 0) * RAD;
+  return [east * Math.cos(th) - north * Math.sin(th), east * Math.sin(th) + north * Math.cos(th)];
+}
+const areaOf = code => lists().areas.find(a => upper(a.area) === code);
+// Position of a sensor in the frame of its area, or null.
+function sensorXY(s) {
+  if (has(s.x) && has(s.y)) return [Number(s.x), Number(s.y)];
+  const a = areaOf(upper(s.area));
+  if (has(s.lat) && has(s.lon) && a && a.origin) return toLocal(a.origin, Number(s.lat), Number(s.lon));
+  return null;
+}
+const areaCodes = () => lists().areas.map(a => upper(a.area)).filter(Boolean).sort();
+
+// ---- Render ----
+let frame = 0;
+function render() { if (!frame) frame = requestAnimationFrame(() => { frame = 0; draw(); }); }
+
+function draw() {
+  const L = lists();
+  const codes = areaCodes();
+  if (!codes.includes(state.area)) state.area = codes[0] || '';
+  $('siteName').textContent = SITE;
+
+  // Areas
+  const changedArea = a => state.draft && state.cfg && JSON.stringify(state.cfg.areas.find(x => upper(x.area) === upper(a.area))) !== JSON.stringify(a);
+  fill('areaList', JSON.stringify([L.areas, !!state.draft]), list => L.areas.forEach((a, i) => {
+    const b = el('button', 'tr cols-area' + (changedArea(a) ? ' changed' : '')); b.type = 'button';
+    const n = L.sensors.filter(s => s.role === 'anchor' && upper(s.area) === upper(a.area)).length;
+    const name = el('span', 'cell-sub');
+    name.append(el('b', '', a.name || '—'), el('small', '', n + ' anchors · tags at ' + (has(a.tag_height_m) ? a.tag_height_m : 1.5) + ' m' + (a.origin ? ' · georeferenced' : '')));
+    const st = a.enabled === false ? el('span', 'pill grey', 'off') : el('span');
+    b.append(el('span', 'cell-mono', upper(a.area)), name, st);
+    b.onclick = () => openArea(i);
+    list.append(b);
+  }));
+  $('noAreas').hidden = L.areas.length > 0;
+
+  // Sensors, anchors grouped by area first
+  const order = L.sensors.map((s, i) => ({ s, i })).sort((p, q) =>
+    (p.s.role === 'anchor' ? 0 : 1) - (q.s.role === 'anchor' ? 0 : 1) || String(p.s.area || '').localeCompare(String(q.s.area || '')) || String(p.s.id).localeCompare(String(q.s.id)));
+  const changedSensor = s => state.draft && state.cfg && JSON.stringify(state.cfg.sensors.find(x => upper(x.id) === upper(s.id))) !== JSON.stringify(s);
+  fill('sensorList', JSON.stringify([L.sensors, L.areas, !!state.draft]), list => order.forEach(({ s, i }) => {
+    const b = el('button', 'tr cols-sensor' + (changedSensor(s) ? ' changed' : '')); b.type = 'button';
+    const role = s.role === 'anchor' ? el('span', 'pill base', 'anchor') : el('span', 'pill grey', 'presence');
+    const pos = el('span', 'cell-sub');
+    const where = has(s.x) ? 'x ' + s.x + ' · y ' + s.y : has(s.lat) ? fix(s.lat, 6) + ', ' + fix(s.lon, 6) : 'no position';
+    pos.append(el('b', '', where), el('small', '', [s.role === 'anchor' ? upper(s.area) : '', s.name, s.source, has(s.z_m) ? 'z ' + s.z_m + ' m' : ''].filter(Boolean).join(' · ')));
+    b.append(el('span', 'cell-mono', upper(s.id)), role, pos);
+    b.onclick = () => openSensor(i);
+    list.append(b);
+  }));
+  $('noSensors').hidden = L.sensors.length > 0;
+
+  // Draft
+  const dirty = !!state.draft && JSON.stringify(state.draft) !== JSON.stringify(state.cfg);
+  if (state.draft && !dirty && !state.pending) state.draft = null;
+  $('draftSummary').textContent = state.pending ? 'Sent. Waiting for the engine...'
+    : dirty ? 'Changes not sent yet.' : state.cfg ? 'Lists in force on the engine.' : 'No lists from the engine yet: is it running on ' + SITE + '?';
+  $('draftWarn').hidden = !(dirty && state.cfgChangedUnder);
+  $('draftWarn').textContent = 'The lists changed on the engine while you were editing: sending replaces them with yours.';
+  $('draftErr').hidden = !state.sendErr;
+  $('draftErr').textContent = state.sendErr;
+  $('sendLists').disabled = !dirty || !state.online || !!state.pending;
+  $('discard').disabled = !dirty || !!state.pending;
+
+  // Area tabs
+  fill('areaTabs', JSON.stringify([codes, state.area]), tabs => codes.forEach(c => {
+    const b = el('button', 'tab' + (c === state.area ? ' on' : ''), c); b.type = 'button';
+    b.setAttribute('role', 'tab'); b.setAttribute('aria-selected', c === state.area);
+    const a = areaOf(c); if (a && a.name) b.title = a.name;
+    b.onclick = () => { state.area = c; state.view = null; render(); };
+    tabs.append(b);
+  }));
+
+  drawMap();
+  drawTags();
+
+  // Engine answers
+  fill('resList', state.results.map(r => r.key).join(','), list => state.results.forEach(r => {
+    const row = el('div', 'tr cols-res');
+    const chip = el('span', 'chip ' + (r.ok ? 'ok' : 'bad'), r.ok ? 'OK' : 'ERR');
+    const msg = el('span', 'res-msg' + (r.ok ? '' : ' bad'), r.ok ? 'Lists applied' : r.error);
+    msg.append(el('small', '', (r.source === 'file' ? 'file changed on the server' : r.mine ? 'sent by this page' : 'sent by another page')
+      + (r.warnings && r.warnings.length ? ' · ' + r.warnings.join('; ') : '')));
+    row.append(stamp(r.ts), chip, msg);
+    list.append(row);
+  }));
+  $('noRes').hidden = state.results.length > 0;
+
+  drawPopup();
+}
+
+// ---- Map ----
+const SVGNS = 'http://www.w3.org/2000/svg';
+function svg(tag, attrs, text) {
+  const e = document.createElementNS(SVGNS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (text !== undefined) e.textContent = text;
+  return e;
+}
+let mapBox = null;   // last fitted box, for zoom and pan
+
+function mapContent() {
+  const code = state.area;
+  const anchors = lists().sensors.filter(s => s.role === 'anchor' && upper(s.area) === code)
+    .map(s => ({ s, p: sensorXY(s) })).filter(a => a.p);
+  const tags = Object.values(state.tags).filter(t => t.pos && t.pos.area === code);
+  const truth = Object.entries(state.truth).filter(([, v]) => v.area === code);
+  return { anchors, tags, truth };
+}
+
+function fitBox(c) {
+  const pts = [...c.anchors.map(a => a.p), ...c.tags.map(t => [t.pos.x, t.pos.y]), ...c.truth.map(([, v]) => [v.x, v.y])];
+  if (!pts.length) return { cx: 0, cy: 0, w: 20, h: 20 };
+  let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+  for (const [x, y] of pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+  return { cx: (x0 + x1) / 2, cy: (y0 + y1) / 2, w: Math.max(x1 - x0, 10), h: Math.max(y1 - y0, 10) };
+}
+
+function drawMap() {
+  const box = $('map').getBoundingClientRect();
+  const W = box.width, H = box.height;
+  if (!W || !H) return;
+  const c = mapContent();
+  const fitted = fitBox(c);
+  // Room around the content for the labels (anchor ids sit to the right) and the zoom buttons
+  const fitScale = Math.max(Math.min((W - 110) / fitted.w, (H - 70) / fitted.h), 0.01);
+  const v = state.view || { cx: fitted.cx, cy: fitted.cy, scale: fitScale };
+  mapBox = { W, H, v, fitScale };
+  const px = (x, y) => [W / 2 + (x - v.cx) * v.scale, H / 2 - (y - v.cy) * v.scale];
+  const showLabels = $('tLabels').checked;
+  const root = $('map');
+  root.replaceChildren();
+
+  // Grid: the smallest round step at least 48 px wide
+  const step = [0.5, 1, 2, 5, 10, 20, 50, 100, 200, 500].find(s => s * v.scale >= 48) || 1000;
+  const xMin = v.cx - W / 2 / v.scale, xMax = v.cx + W / 2 / v.scale, yMin = v.cy - H / 2 / v.scale, yMax = v.cy + H / 2 / v.scale;
+  const g = svg('g', { stroke: '#1f272d', 'stroke-width': 1 });
+  for (let x = Math.ceil(xMin / step) * step; x <= xMax; x += step) {
+    const [sx] = px(x, 0);
+    g.append(svg('line', { x1: sx, y1: 0, x2: sx, y2: H, stroke: Math.abs(x) < 1e-9 ? '#3a444d' : '#1f272d' }));
+    if (showLabels) g.append(svg('text', { x: sx + 3, y: H - 6, fill: '#5d6973', 'font-size': 10, 'font-family': 'IBM Plex Mono', stroke: 'none' }, +x.toFixed(1) + ''));
+  }
+  for (let y = Math.ceil(yMin / step) * step; y <= yMax; y += step) {
+    const [, sy] = px(0, y);
+    g.append(svg('line', { x1: 0, y1: sy, x2: W, y2: sy, stroke: Math.abs(y) < 1e-9 ? '#3a444d' : '#1f272d' }));
+    if (showLabels) g.append(svg('text', { x: 4, y: sy - 3, fill: '#5d6973', 'font-size': 10, 'font-family': 'IBM Plex Mono', stroke: 'none' }, +y.toFixed(1) + ''));
+  }
+  root.append(g);
+  $('gridNote').textContent = 'grid ' + step + ' m';
+
+  // North arrow when the area is georeferenced: north is (−sin θ, cos θ) in the local frame
+  const a = areaOf(state.area);
+  if (a && a.origin) {
+    const th = (a.origin.rotation_deg || 0) * RAD, nx = -Math.sin(th), ny = Math.cos(th);
+    const ox = W - 70, oy = 60, L = 22;
+    const ng = svg('g', { stroke: '#9aa6b0', 'stroke-width': 1.5, fill: 'none' });
+    ng.append(svg('line', { x1: ox - nx * L / 2, y1: oy + ny * L / 2, x2: ox + nx * L / 2, y2: oy - ny * L / 2 }));
+    ng.append(svg('circle', { cx: ox + nx * L / 2, cy: oy - ny * L / 2, r: 2.5, fill: '#9aa6b0' }));
+    ng.append(svg('text', { x: ox + nx * (L / 2 + 10) - 4, y: oy - ny * (L / 2 + 10) + 4, fill: '#9aa6b0', stroke: 'none', 'font-size': 11, 'font-weight': 600 }, 'N'));
+    root.append(ng);
+  }
+
+  // Tracks
+  if ($('tTracks').checked) {
+    for (const t of c.tags) {
+      // Only the last seconds chosen, counted back from the tag's own last position
+      const since = (t.track.length ? t.track[t.track.length - 1].ts : 0) - Number($('trailLen').value) * 1000;
+      const pts = t.track.filter(p => p.area === state.area && p.ts >= since).map(p => px(p.x, p.y).map(n => n.toFixed(1)).join(','));
+      if (pts.length > 1) root.append(svg('polyline', { points: pts.join(' '), fill: 'none', stroke: colorOf(t.addr), 'stroke-width': t.addr === state.selected ? 2 : 1.2, 'stroke-opacity': t.addr === state.selected ? .8 : .4, 'stroke-linejoin': 'round' }));
+    }
+  }
+
+  // Anchors
+  for (const { s, p } of c.anchors) {
+    const [x, y] = px(p[0], p[1]);
+    const ag = svg('g', {});
+    ag.append(svg('path', { d: `M${x} ${y - 9}L${x + 8} ${y + 6}H${x - 8}Z`, fill: '#1a2025', stroke: '#9aa6b0', 'stroke-width': 1.5 }));
+    if (showLabels) ag.append(svg('text', { x: x + 11, y: y + 4, fill: '#9aa6b0', 'font-size': 11, 'font-family': 'IBM Plex Mono' }, upper(s.id)));
+    ag.append(svg('title', {}, upper(s.id) + (s.name ? ' · ' + s.name : '') + '\nx ' + p[0].toFixed(2) + ' m, y ' + p[1].toFixed(2) + ' m, z ' + (s.z_m ?? '?') + ' m'));
+    root.append(ag);
+  }
+
+  // Simulator truth, joined to the estimate
+  if ($('tTruth').checked) {
+    for (const [addr, tv] of c.truth) {
+      const [x, y] = px(tv.x, tv.y);
+      const t = state.tags[addr];
+      if (t && t.pos && t.pos.area === state.area) {
+        const [ex, ey] = px(t.pos.x, t.pos.y);
+        root.append(svg('line', { x1: x, y1: y, x2: ex, y2: ey, stroke: '#e6eaed', 'stroke-opacity': .35, 'stroke-dasharray': '2 3' }));
+      }
+      root.append(svg('circle', { cx: x, cy: y, r: 5, fill: 'none', stroke: '#e6eaed', 'stroke-opacity': .7, 'stroke-dasharray': '2 2' }));
+    }
+  }
+
+  // Tags
+  const now = Date.now();
+  for (const t of c.tags.slice().sort((p, q) => (p.addr === state.selected) - (q.addr === state.selected))) {
+    const p = t.pos, col = colorOf(t.addr), sel = t.addr === state.selected;
+    const [x, y] = px(p.x, p.y);
+    const tg = svg('g', { opacity: now - t.seen > STALE_MS ? .45 : 1, style: 'cursor:pointer' });
+    if ($('tEllipses').checked && p.ellipse) {
+      const rx = Math.max(p.ellipse.a * v.scale, 1), ry = Math.max(p.ellipse.b * v.scale, 1);
+      tg.append(svg('ellipse', { cx: x, cy: y, rx, ry, transform: `rotate(${-p.ellipse.angle_deg} ${x} ${y})`, fill: col, 'fill-opacity': .12, stroke: col, 'stroke-opacity': .5 }));
+    }
+    if (sel) tg.append(svg('circle', { cx: x, cy: y, r: 11, fill: 'none', stroke: '#f5a524', 'stroke-width': 2 }));
+    tg.append(svg('circle', { cx: x, cy: y, r: 6, fill: col, stroke: '#12161a', 'stroke-width': 1.5 }));
+    if (showLabels || sel) tg.append(svg('text', { x: x + 10, y: y - 8, fill: col, 'font-size': 12, 'font-weight': 500, 'font-family': 'IBM Plex Mono' }, t.addr));
+    tg.append(svg('title', {}, t.addr + ' · ' + p.mode + '\nx ' + p.x + ' m, y ' + p.y + ' m · σ ' + p.sigma_m + ' m'));
+    tg.addEventListener('click', ev => { ev.stopPropagation(); select(t.addr); });
+    root.append(tg);
+  }
+
+  $('mapHint').textContent = !state.area ? 'No area in the lists yet.'
+    : c.anchors.length ? (c.tags.length ? '' : 'No tag in ' + state.area + ' yet.')
+    : 'Area ' + state.area + ' has no anchor with a position.';
+}
+
+// Zoom and pan, by mouse or touch
+function zoomBy(f, sx, sy) {
+  if (!mapBox) return;
+  const { W, H, v } = mapBox;
+  sx = sx ?? W / 2; sy = sy ?? H / 2;
+  const mx = v.cx + (sx - W / 2) / v.scale, my = v.cy - (sy - H / 2) / v.scale;   // metres under the pointer stay put
+  const scale = Math.min(Math.max(v.scale * f, mapBox.fitScale / 20), mapBox.fitScale * 200);
+  state.view = { cx: mx - (sx - W / 2) / scale, cy: my + (sy - H / 2) / scale, scale };
+  render();
+}
+$('zoomIn').onclick = () => zoomBy(1.5);
+$('zoomOut').onclick = () => zoomBy(1 / 1.5);
+$('zoomFit').onclick = () => { state.view = null; render(); };
+$('map').addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = $('map').getBoundingClientRect();
+  zoomBy(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX - r.left, e.clientY - r.top);
+}, { passive: false });
+const pointers = new Map();
+let pinch = 0, dragging = false, downAt = null;
+// Pan starts only after the pointer moved a few pixels, so a tap on a tag still selects it.
+$('map').addEventListener('pointerdown', e => { pointers.set(e.pointerId, [e.clientX, e.clientY]); downAt = [e.clientX, e.clientY]; dragging = false; });
+$('map').addEventListener('pointermove', e => {
+  if (!pointers.has(e.pointerId) || !mapBox) return;
+  const prev = pointers.get(e.pointerId);
+  if (!dragging && pointers.size === 1 && Math.hypot(e.clientX - downAt[0], e.clientY - downAt[1]) < 5) return;
+  if (!dragging) { dragging = true; $('map').setPointerCapture(e.pointerId); }
+  pointers.set(e.pointerId, [e.clientX, e.clientY]);
+  if (pointers.size === 1) {
+    const v = mapBox.v;
+    state.view = { cx: v.cx - (e.clientX - prev[0]) / v.scale, cy: v.cy + (e.clientY - prev[1]) / v.scale, scale: v.scale };
+    render();
+  } else if (pointers.size === 2) {
+    const [a, b] = [...pointers.values()];
+    const d = Math.hypot(a[0] - b[0], a[1] - b[1]);
+    if (pinch) { const r = $('map').getBoundingClientRect(); zoomBy(d / pinch, (a[0] + b[0]) / 2 - r.left, (a[1] + b[1]) / 2 - r.top); }
+    pinch = d;
+  }
+});
+const endPointer = e => { pointers.delete(e.pointerId); if (pointers.size < 2) pinch = 0; if (!pointers.size) dragging = false; };
+$('map').addEventListener('pointerup', endPointer);
+$('map').addEventListener('pointercancel', endPointer);
+new ResizeObserver(() => render()).observe($('mapWrap'));
+for (const id of ['tTracks', 'tEllipses', 'tTruth', 'tLabels', 'trailLen']) $(id).onchange = () => render();
+
+// ---- Tags ----
+function select(addr) {
+  state.selected = state.selected === addr ? '' : addr;
+  const t = state.tags[addr];
+  if (state.selected && t && t.pos && t.pos.area !== state.area) { state.area = t.pos.area; state.view = null; }
+  render();
+}
+
+const cards = {};   // addr -> elements of its card, updated in place
+function drawTags() {
+  const scope = $('tagScope').value;
+  const now = Date.now();
+  const tags = Object.values(state.tags).filter(t => t.pos && (scope === 'all' || t.pos.area === state.area))
+    .sort((a, b) => a.addr < b.addr ? -1 : 1);
+  fill('tagList', tags.map(t => t.addr).join(','), list => tags.forEach(t => list.append((cards[t.addr] || (cards[t.addr] = tagCard(t.addr))).card)));
+  tags.forEach(t => updateCard(cards[t.addr], t, now));
+  $('noTagsMsg').hidden = tags.length > 0;
+  $('noTagsMsg').textContent = Object.keys(state.tags).length ? 'No tag in this area.' : 'No position received yet.';
+}
+
+function tagCard(addr) {
+  const c = {};
+  c.card = el('div', 'tagcard'); c.card.tabIndex = 0; c.card.setAttribute('role', 'button');
+  c.card.onclick = () => select(addr);
+  c.card.onkeydown = e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); select(addr); } };
+  const l1 = el('div', 'l1');
+  const dot = el('span', 'dot'); dot.style.background = colorOf(addr);
+  c.area = el('span', 'pill grey'); c.mode = el('span', 'chip na'); c.seen = el('span', 'seen');
+  l1.append(dot, el('span', 'addr', addr), c.area, c.mode, c.seen);
+  const kv1 = el('div', 'kv');
+  c.x = el('b'); c.y = el('b'); c.sigma = el('b'); c.speed = el('b'); c.truth = el('b');
+  c.truthItem = kvItem('vs truth', c.truth);
+  kv1.append(kvItem('x', c.x), kvItem('y', c.y), kvItem('σ', c.sigma), kvItem('speed', c.speed), c.truthItem);
+  const kv2 = el('div', 'kv');
+  c.anchors = el('b');
+  kv2.append(kvItem('anchors', c.anchors));
+  const kv3 = el('div', 'kv');
+  c.track = el('b');
+  const det = el('button', 'ghost', 'Details · export'); det.type = 'button';
+  det.onclick = e => { e.stopPropagation(); state.popup = { kind: 'tag', addr }; render(); };
+  kv3.append(kvItem('track', c.track), det);
+  c.card.append(l1, kv1, kv2, kv3);
+  return c;
+}
+
+function updateCard(c, t, now) {
+  const p = t.pos;
+  c.card.className = 'tagcard' + (t.addr === state.selected ? ' on' : '') + (now - t.seen > STALE_MS ? ' stale' : '');
+  c.area.textContent = p.area;
+  c.mode.textContent = p.mode; c.mode.className = 'chip ' + (p.mode === 'fix' ? 'ok' : 'na');
+  c.seen.textContent = fmtTime(t.seen) + ' · ' + Math.round((now - t.seen) / 1000) + ' s';
+  c.x.textContent = fix(p.x, 2) + ' m'; c.y.textContent = fix(p.y, 2) + ' m';
+  c.sigma.textContent = fix(p.sigma_m, 2) + ' m'; c.speed.textContent = fix(p.speed, 1) + ' m/s';
+  const tv = state.truth[t.addr];
+  c.truthItem.hidden = !(tv && tv.area === p.area);
+  if (!c.truthItem.hidden) {
+    const err = Math.hypot(tv.x - p.x, tv.y - p.y);
+    c.truth.textContent = fix(err, 2) + ' m';
+    c.truth.className = err > 2 * Math.max(p.sigma_m, .3) ? 'bad' : '';
+  }
+  c.anchors.textContent = (p.anchors || []).map(a => a.id + ' ' + (a.residual >= 0 ? '+' : '') + fix(a.residual, 2)).join('  ') || 'none';
+  c.track.textContent = t.track.length + ' points';
+}
+$('tagScope').onchange = () => render();
+setInterval(render, 1000);   // ages and faded tags
+
+$('clearTracks').onclick = () => { for (const t of Object.values(state.tags)) t.track = t.track.slice(-1); render(); };
+
+// ---- Popups ----
+let popKey = '';
+function drawPopup() {
+  const pop = state.popup;
+  $('popup').hidden = !pop;
+  if (!pop) { popKey = ''; return; }
+  const key = JSON.stringify(pop);
+  if (pop.kind === 'tag') {                 // live content, rebuilt every render
+    const t = state.tags[pop.addr];
+    $('popTitle').textContent = 'Tag ' + pop.addr;
+    $('popWhen').textContent = t ? 'Last position at ' + fmtTime(t.seen) + ' · ' + t.track.length + ' track points kept' : '';
+    $('popDialog').className = 'dialog wide';
+    if (popKey !== key) {
+      popKey = key;
+      const body = $('popBody'); body.replaceChildren();
+      const pre = el('pre'); pre.id = 'tagJson';
+      const row = el('div', 'row');
+      const csv = el('button', 'ghost', 'Export track .csv'); csv.type = 'button'; csv.onclick = () => exportTrack(pop.addr);
+      row.append(csv);
+      body.append(el('span', 'when', 'Last position, as published by the engine:'), pre, row);
+    }
+    $('tagJson').textContent = t ? JSON.stringify(t.pos, null, 2) : '';
+    return;
+  }
+  if (popKey === key) return;               // forms keep what is being typed
+  popKey = key;
+  const body = $('popBody'); body.replaceChildren();
+  $('popDialog').className = 'dialog' + (pop.kind === 'json' ? ' wide' : '');
+  if (pop.kind === 'json') {
+    $('popTitle').textContent = 'Lists JSON';
+    $('popWhen').textContent = state.draft ? 'Your edited lists, not sent yet' : 'Lists in force on the engine';
+    body.append(el('pre', '', JSON.stringify(lists(), null, 2)));
+  } else if (pop.kind === 'sensor') sensorForm(body, pop.idx);
+  else if (pop.kind === 'area') areaForm(body, pop.idx);
+}
+const closePopup = () => { state.popup = null; state.armed = ''; render(); };
+$('popBack').onclick = closePopup;
+$('popClose').onclick = closePopup;
+document.addEventListener('keydown', e => { if (e.key === 'Escape' && state.popup) closePopup(); });
+$('viewJson').onclick = () => { state.popup = { kind: 'json' }; render(); };
+
+function field(label, input, note) {
+  const f = el('label', 'field');
+  f.append(el('span', 'lab', label), input);
+  if (note) f.append(el('span', 'note', note));
+  return f;
+}
+function input(value, attrs) {
+  const i = el('input', 'inp' + (attrs && attrs.cls ? ' ' + attrs.cls : ''));
+  i.type = (attrs && attrs.type) || 'text';
+  if (attrs && attrs.step) i.step = attrs.step;
+  if (attrs && attrs.placeholder) i.placeholder = attrs.placeholder;
+  if (attrs && attrs.mode) i.inputMode = attrs.mode;
+  i.autocomplete = 'off'; i.spellcheck = false;
+  i.value = has(value) ? value : '';
+  return i;
+}
+function radioPair(name, options, value, onChange) {
+  const wrap = el('div', 'pair' + (options.length === 3 ? ' three' : ''));
+  const opts = options.map(([v, label]) => {
+    const l = el('label', 'opt' + (v === value ? ' on' : ''));
+    const r = el('input'); r.type = 'radio'; r.name = name; r.checked = v === value;
+    r.onchange = () => { opts.forEach(o => o.className = 'opt'); l.className = 'opt on'; onChange(v); };
+    l.append(r, el('span', '', label));
+    wrap.append(l);
+    return l;
+  });
+  return wrap;
+}
+function select2(values, value) {
+  const s = el('select', 'inp');
+  values.forEach(([v, label]) => s.append(new Option(label, v)));
+  s.value = value;
+  return s;
+}
+function buttons(onSave, removeKey, onRemove) {
+  const prob = el('span', 'problem'); prob.hidden = true;
+  const row = el('div', 'send-row');
+  const save = el('button', 'send', 'Save to the list'); save.type = 'button';
+  save.onclick = () => { const p = onSave(); prob.hidden = !p; prob.textContent = p || ''; if (!p) closePopup(); };
+  row.append(save);
+  if (onRemove) {
+    const rm = el('button', 'ghost danger', 'Remove'); rm.type = 'button';
+    rm.onclick = () => {
+      if (state.armed !== removeKey) { state.armed = removeKey; rm.className = 'ghost armed'; rm.textContent = 'Confirm removal'; return; }
+      const p = onRemove(); prob.hidden = !p; prob.textContent = p || ''; if (!p) closePopup();
+    };
+    row.append(rm);
+  }
+  return [prob, row];
+}
+
+// GNSS of the phone: the median of the fixes of a few seconds
+function gnssButton(onFix) {
+  const wrap = el('div', 'field');
+  const b = el('button', 'ghost', 'Use the phone GNSS'); b.type = 'button';
+  const note = el('span', 'note', 'Averages 10 s of fixes. Stand still, in open sky, away from metal.');
+  b.onclick = () => {
+    if (!navigator.geolocation) { note.textContent = 'This browser has no geolocation.'; return; }
+    const fixes = [];
+    b.disabled = true;
+    const id = navigator.geolocation.watchPosition(p => {
+      fixes.push(p.coords);
+      note.textContent = 'Averaging: ' + fixes.length + ' fixes, last accuracy ±' + Math.round(p.coords.accuracy) + ' m...';
+    }, err => { note.textContent = 'GNSS error: ' + err.message; }, { enableHighAccuracy: true, maximumAge: 0, timeout: 15000 });
+    setTimeout(() => {
+      navigator.geolocation.clearWatch(id);
+      b.disabled = false;
+      if (!fixes.length) { note.textContent = 'No fix. Allow the location and try again.'; return; }
+      const med = a => { const s = a.slice().sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+      const lat = med(fixes.map(f => f.latitude)), lon = med(fixes.map(f => f.longitude)), acc = med(fixes.map(f => f.accuracy));
+      note.textContent = fixes.length + ' fixes, median accuracy ±' + acc.toFixed(1) + ' m. Check it before saving.';
+      onFix(+lat.toFixed(7), +lon.toFixed(7), acc);
+    }, 10000);
+  };
+  wrap.append(b, note);
+  return wrap;
+}
+
+function openSensor(idx) { state.popup = { kind: 'sensor', idx }; state.armed = ''; render(); }
+function openArea(idx) { state.popup = { kind: 'area', idx }; state.armed = ''; render(); }
+$('addSensor').onclick = () => openSensor(-1);
+$('addArea').onclick = () => openArea(-1);
+
+function sensorForm(body, idx) {
+  const L = lists();
+  const s = idx >= 0 ? clone(L.sensors[idx]) : { role: 'anchor', area: state.area || '', source: 'planta' };
+  $('popTitle').textContent = idx >= 0 ? 'Sensor ' + upper(s.id) : 'New sensor';
+  $('popWhen').textContent = 'Every anchor is a sensor; presence sensors are listed but not trilaterated';
+  let role = s.role === 'presence' ? 'presence' : 'anchor';
+  let mode = has(s.x) ? 'local' : has(s.lat) ? 'wgs84' : (role === 'anchor' ? 'local' : 'none');
+
+  const id = input(s.id, { cls: 'mono up', placeholder: 'e.g. A001' }); id.maxLength = 4;
+  const roleSel = radioPair('role', [['anchor', 'Anchor'], ['presence', 'Presence']], role, v => { role = v; if (role === 'presence' && mode === 'local') mode = 'wgs84'; sync(); });
+  const area = select2(areaCodes().map(c => [c, c + (areaOf(c) && areaOf(c).name ? ' · ' + areaOf(c).name : '')]), upper(s.area));
+  const areaF = field('Area', area);
+  const modeBox = el('div', 'field');
+  const x = input(s.x, { type: 'number', step: 'any', mode: 'decimal', placeholder: '0.00' }), y = input(s.y, { type: 'number', step: 'any', mode: 'decimal', placeholder: '0.00' });
+  const lat = input(s.lat, { type: 'number', step: 'any', mode: 'decimal', placeholder: '-19.9496790' }), lon = input(s.lon, { type: 'number', step: 'any', mode: 'decimal', placeholder: '-43.9701230' });
+  const xy = el('div', 'grid2'); xy.append(field('x (m)', x), field('y (m)', y));
+  const ll = el('div', 'grid2'); ll.append(field('Latitude', lat), field('Longitude', lon));
+  const llNote = el('span', 'note');
+  const z = input(s.z_m, { type: 'number', step: 'any', mode: 'decimal', placeholder: 'e.g. 10' });
+  const sigma = input(s.sigma_m, { type: 'number', step: 'any', mode: 'decimal', placeholder: 'default 0.1 (x/y) or 3 (lat/lon)' });
+  const source = select2([['', '—'], ...SOURCES.map(v => [v, v])], s.source || '');
+  const name = input(s.name, { placeholder: 'optional, e.g. Gate 2' });
+  const gnss = gnssButton((la, lo, acc) => {
+    lat.value = la; lon.value = lo; source.value = 'celular';
+    if (!has(sigma.value)) sigma.value = Math.max(1, +acc.toFixed(1));
+    mode = 'wgs84'; sync();
+  });
+  const zs = el('div', 'grid2'); zs.append(field('Height z (m)', z, 'Antenna height above the floor of the area, by hand.'), field('Position σ (m)', sigma));
+  const modeSel = el('div');
+
+  function sync() {
+    roleSel.querySelectorAll('input').forEach((r, i) => { r.checked = (i === 0) === (role === 'anchor'); r.parentElement.className = 'opt' + (r.checked ? ' on' : ''); });
+    areaF.hidden = role !== 'anchor';
+    const opts = role === 'anchor' ? [['local', 'Metres (x, y)'], ['wgs84', 'Lat / Lon']] : [['wgs84', 'Lat / Lon'], ['none', 'No position']];
+    if (!opts.some(o => o[0] === mode)) mode = opts[0][0];
+    modeSel.replaceChildren(radioPair('mode', opts, mode, v => { mode = v; sync(); }));
+    xy.hidden = mode !== 'local';
+    ll.hidden = gnss.hidden = mode !== 'wgs84';
+    const a = areaOf(area.value);
+    llNote.hidden = !(role === 'anchor' && mode === 'wgs84');
+    llNote.textContent = a && a.origin ? 'Converted to metres with the origin of area ' + area.value + '.' : 'Area ' + (area.value || '?') + ' has no origin: set it in the area before using lat/lon.';
+  }
+  area.onchange = sync;
+  modeBox.append(el('span', 'lab', 'Position'), modeSel, xy, ll, llNote, gnss);
+
+  const [prob, row] = buttons(() => {
+    const out = { id: upper(id.value), role };
+    if (!isAddr(out.id)) return 'ID: 4 hex digits, for example A001.';
+    if (L.sensors.some((o, i) => i !== idx && upper(o.id) === out.id)) return 'Sensor ' + out.id + ' is already in the list.';
+    if (role === 'anchor') { if (!area.value) return 'An anchor needs an area: create one first.'; out.area = area.value; }
+    if (has(name.value.trim())) out.name = name.value.trim();
+    if (mode === 'local') {
+      if (!has(x.value) || !has(y.value)) return 'Fill x and y.';
+      out.x = num(x.value); out.y = num(y.value);
+    } else if (mode === 'wgs84') {
+      if (!has(lat.value) || !has(lon.value)) return 'Fill latitude and longitude.';
+      out.lat = num(lat.value); out.lon = num(lon.value);
+      if (Math.abs(out.lat) > 90 || Math.abs(out.lon) > 180) return 'Latitude or longitude out of range.';
+    }
+    if (has(z.value)) out.z_m = num(z.value);
+    else if (role === 'anchor') return 'An anchor needs its height z.';
+    if (has(sigma.value)) out.sigma_m = num(sigma.value);
+    if (source.value) out.source = source.value;
+    const d = editable();
+    if (idx >= 0) d.sensors[idx] = out; else d.sensors.push(out);
+    state.sendErr = '';
+    return '';
+  }, 'rm-s' + idx, idx >= 0 ? () => { editable().sensors.splice(idx, 1); return ''; } : null);
+
+  const top = el('div', 'grid2'); top.append(field('ID', id), field('Name', name));
+  body.append(top, field('Role', roleSel), areaF, modeBox, zs, field('Source of the position', source), prob, row);
+  sync();
+}
+
+function areaForm(body, idx) {
+  const L = lists();
+  const a = idx >= 0 ? clone(L.areas[idx]) : { area: nextAreaCode(), tag_height_m: 1.5 };
+  const oldCode = upper(a.area);
+  $('popTitle').textContent = idx >= 0 ? 'Area ' + oldCode : 'New area';
+  $('popWhen').textContent = 'A set of anchors that trilaterate together, with its own frame in metres and a single floor';
+  const code = input(a.area, { cls: 'mono up', placeholder: 'R01' });
+  const name = input(a.name, { placeholder: 'e.g. Warehouse 2' });
+  const th = input(a.tag_height_m, { type: 'number', step: 'any', mode: 'decimal', placeholder: '1.5' });
+  let enabled = a.enabled !== false;
+  const en = radioPair('enabled', [[true, 'On'], [false, 'Off']], enabled, v => { enabled = v; });
+  const o = a.origin || {};
+  const olat = input(o.lat, { type: 'number', step: 'any', mode: 'decimal', placeholder: 'optional' });
+  const olon = input(o.lon, { type: 'number', step: 'any', mode: 'decimal', placeholder: 'optional' });
+  const rot = input(o.rotation_deg, { type: 'number', step: 'any', mode: 'decimal', placeholder: '0' });
+  const og = el('div', 'grid3'); og.append(field('Origin lat', olat), field('Origin lon', olon), field('Rotation (°)', rot));
+  const gnss = gnssButton((la, lo) => { olat.value = la; olon.value = lo; });
+  const top = el('div', 'grid2'); top.append(field('Code', code), field('Name', name));
+  const mid = el('div', 'grid2'); mid.append(field('Tag height (m)', th, 'Tags of this area, above its floor.'), field('Trilateration', en));
+  const geo = el('div', 'field');
+  geo.append(el('span', 'lab', 'Georeference (optional)'), og,
+    el('span', 'note', 'Origin: lat/lon of the local (0, 0). Rotation: azimuth of the local +y axis, clockwise from north (0: x east, y north). Needed for anchors given in lat/lon, and for lat/lon in the output.'), gnss);
+
+  const [prob, row] = buttons(() => {
+    const out = { area: upper(code.value) };
+    if (!isArea(out.area)) return 'Code: letters and digits, for example R01.';
+    if (L.areas.some((x, i) => i !== idx && upper(x.area) === out.area)) return 'Area ' + out.area + ' already exists.';
+    if (has(name.value.trim())) out.name = name.value.trim();
+    if (has(th.value)) out.tag_height_m = num(th.value);
+    if (has(olat.value) || has(olon.value)) {
+      if (!has(olat.value) || !has(olon.value)) return 'Origin: fill both latitude and longitude, or neither.';
+      out.origin = { lat: num(olat.value), lon: num(olon.value), rotation_deg: num(rot.value) || 0 };
+    }
+    if (!enabled) out.enabled = false;
+    const d = editable();
+    if (idx >= 0) {
+      d.areas[idx] = out;
+      if (oldCode && oldCode !== out.area) d.sensors.forEach(s => { if (upper(s.area) === oldCode) s.area = out.area; });   // the anchors follow
+    } else d.areas.push(out);
+    state.sendErr = '';
+    if (!state.area) state.area = out.area;
+    return '';
+  }, 'rm-a' + idx, idx >= 0 ? () => {
+    const n = editable().sensors.filter(s => upper(s.area) === oldCode).length;
+    if (n) return 'Area ' + oldCode + ' still has ' + n + ' sensors: move or remove them first.';
+    editable().areas.splice(idx, 1);
+    return '';
+  } : null);
+  body.append(top, mid, geo, prob, row);
+}
+function nextAreaCode() {
+  const used = new Set(areaCodes());
+  for (let i = 1; i < 100; i++) { const c = 'R' + pad(i); if (!used.has(c)) return c; }
+  return '';
+}
+
+// ---- Send the lists ----
+$('sendLists').onclick = () => {
+  if (!state.draft || !state.online) return;
+  const request_id = 'web-' + Date.now().toString(36);
+  state.pending = request_id; state.sendErr = ''; state.cfgChangedUnder = false;
+  client.publish(TOPIC.set, JSON.stringify({ request_id, config: state.draft }), { qos: 1 });
+  setTimeout(() => { if (state.pending === request_id) { state.pending = null; state.sendErr = 'No answer from the engine in 10 s. Is it running on ' + SITE + '?'; render(); } }, 10000);
+  render();
+};
+$('discard').onclick = () => { state.draft = null; state.sendErr = ''; state.cfgChangedUnder = false; render(); };
+
+function exportTrack(addr) {
+  const t = state.tags[addr];
+  if (!t) return;
+  const rows = ['time,area,x_m,y_m,sigma_m,mode,lat,lon'];
+  t.track.forEach(p => rows.push([new Date(p.ts).toISOString(), p.area, p.x, p.y, p.sigma, p.mode, p.lat ?? '', p.lon ?? ''].join(',')));
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([rows.join('\r\n') + '\r\n'], { type: 'text/csv' }));
+  a.download = 'track-' + addr + '-' + new Date().toISOString().slice(0, 19).replace(/[-:T]/g, '') + '.csv';
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+}
+
+// ---- MQTT ----
+function setConn(text, cls) {
+  $('connText').textContent = text;
+  $('conn').className = 'conn ' + (cls || '');
+}
+const opts = { clientId, reconnectPeriod: 5000 };
+if (CFG.username) { opts.username = CFG.username; opts.password = CFG.password; }
+const client = mqtt.connect(CFG.url, opts);
+client.on('connect', () => {
+  state.online = true;
+  setConn('Connected to broker', 'ok');
+  client.subscribe([TOPIC.config, TOPIC.result], { qos: 1 });
+  client.subscribe([TOPIC.position, TOPIC.truth], { qos: 0 });
+  render();
+});
+client.on('reconnect', () => { state.online = false; setConn('Reconnecting to broker...', 'err'); render(); });
+client.on('offline', () => { state.online = false; setConn('No connection to broker', 'err'); render(); });
+client.on('close', () => { state.online = false; render(); });
+client.on('error', err => { setConn('Error: ' + err.message, 'err'); });
+
+const POS_PREFIX = SITE + '/rtls/position/', TRUTH_PREFIX = SITE + '/rangesim/truth/';
+let resSeq = 0;
+client.on('message', (topic, payload) => {
+  let o; try { o = JSON.parse(payload.toString()); } catch (e) { return; }
+  if (!o || typeof o !== 'object') return;
+  if (topic.startsWith(POS_PREFIX)) {
+    const addr = upper(o.tag_addr || topic.slice(POS_PREFIX.length));
+    if (!isAddr(addr) || !Number.isFinite(o.x) || !Number.isFinite(o.y)) return;
+    const t = state.tags[addr] || (state.tags[addr] = { addr, track: [] });
+    t.pos = o; t.seen = Date.now();
+    const ts = parseTs(o.t);
+    const last = t.track[t.track.length - 1];
+    if (!last || ts >= last.ts) {
+      t.track.push({ ts, x: o.x, y: o.y, area: o.area, sigma: o.sigma_m, mode: o.mode, lat: o.lat, lon: o.lon });
+      if (t.track.length > TRACK_MAX) t.track.splice(0, t.track.length - TRACK_MAX);
+    }
+    if (!state.area) state.area = o.area;
+  } else if (topic.startsWith(TRUTH_PREFIX)) {
+    const addr = upper(o.tag_addr || topic.slice(TRUTH_PREFIX.length));
+    if (isAddr(addr) && Number.isFinite(o.x)) state.truth[addr] = { x: o.x, y: o.y, area: o.area, ts: parseTs(o.t) };
+  } else if (topic === TOPIC.config) {
+    const next = { areas: Array.isArray(o.areas) ? o.areas : [], sensors: Array.isArray(o.sensors) ? o.sensors : [] };
+    if (state.draft && state.cfg && !state.pending && JSON.stringify(next) !== JSON.stringify(state.cfg)) state.cfgChangedUnder = true;
+    state.cfg = next;
+  } else if (topic === TOPIC.result) {
+    const mine = !!o.request_id && o.request_id === state.pending;
+    state.results = [{ key: ++resSeq, ts: parseTs(o.at), ok: !!o.ok, error: o.error || '', source: o.source || '', warnings: o.warnings || [], mine }, ...state.results].slice(0, 50);
+    if (mine) {
+      state.pending = null;
+      if (o.ok) state.draft = null; else state.sendErr = o.error || 'Refused by the engine.';
+    }
+  } else return;
+  render();
+});
+
+render();
+</script>
+</body>
+</html>

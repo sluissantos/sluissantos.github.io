@@ -30,6 +30,10 @@
   header { flex-shrink:0; display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; padding:16px; border-bottom:1px solid var(--line); }
   header .title { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 16px; }
   h1 { margin:0; font-size:22px; font-weight:600; letter-spacing:.01em; }
+  .pages { display:flex; gap:14px; font-size:13px; }
+  .pages a { color:var(--muted); text-decoration:none; }
+  .pages a:hover { color:var(--fg); }
+  .pages a[aria-current] { color:var(--accent); }
   header .right { display:flex; flex-wrap:wrap; align-items:center; gap:8px 20px; }
   header .btns { display:flex; flex-wrap:wrap; gap:8px; }
   .conn { display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); }
@@ -185,6 +189,7 @@
 <header>
   <div class="title">
     <h1>Tag Messaging</h1>
+    <nav class="pages" aria-label="Test pages"><a href="messaging.html" aria-current="page">Messaging</a><a href="rtls.html">RTLS</a></nav>
   </div>
   <div class="right">
     <span class="btns">
