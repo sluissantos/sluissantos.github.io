@@ -124,7 +124,7 @@
   .mapwrap .zoom { position:absolute; right:10px; top:10px; display:flex; flex-direction:column; gap:6px; }
   .mapwrap .zoom button { width:36px; height:36px; border:1px solid var(--line3); border-radius:6px; background:rgba(26,32,37,.92); color:var(--fg); font:500 16px var(--mono); }
   .mapwrap .zoom button:hover { background:#2a333b; }
-  .legend { display:flex; flex-wrap:wrap; gap:4px 16px; font-size:12px; color:var(--muted); }
+  .legend { display:flex; flex-wrap:wrap; gap:4px 16px; font-size:13px; color:var(--fg); }
   .legend svg { vertical-align:-2px; margin-right:4px; }
 
   .field { display:flex; flex-direction:column; gap:6px; min-width:0; }
@@ -185,8 +185,15 @@
   .leaflet-container { font-family:var(--sans); }
   .anc-label { display:flex; align-items:center; gap:4px; white-space:nowrap; font:500 11px var(--mono); color:#fff; text-shadow:0 0 3px #000, 0 0 2px #000; }
   .anc-label svg { flex-shrink:0; }
+  .anc-label span { background:rgba(18,22,26,.85); color:var(--fg); border:1px solid var(--line3); border-radius:4px; padding:0 5px; font:500 12px var(--mono); text-shadow:none; }
   .leaflet-tooltip.tagtip { background:rgba(18,22,26,.85); color:var(--fg); border:1px solid var(--line3); box-shadow:none; font:500 12px var(--mono); padding:1px 6px; }
   .leaflet-tooltip.tagtip:before { display:none; }
+  /* The open layers menu, in the page's colours: dark text on the dark page was unreadable */
+  .leaflet-control-layers-expanded { background:var(--panel); color:var(--fg); border:1px solid var(--line3) !important; border-radius:6px; padding:8px 12px; font-size:13px; }
+  .leaflet-control-layers-expanded label { color:var(--fg); }
+  .leaflet-control-layers-expanded label span { display:inline-flex; align-items:center; gap:6px; min-height:28px; }
+  .leaflet-control-layers-expanded input { accent-color:var(--accent); margin:0; }
+  .leaflet-control-layers-separator { border-top-color:var(--line2) !important; }
 </style>
 </head>
 <body>
@@ -263,10 +270,10 @@
       <span class="hint" id="mapHint"></span>
     </div>
     <div class="legend">
-      <span><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1l5 9H1z" fill="none" stroke="#9aa6b0" stroke-width="1.5"/></svg>anchor</span>
+      <span><svg width="12" height="12" viewBox="0 0 12 12"><path d="M6 1l5 9H1z" fill="none" stroke="#e6eaed" stroke-width="1.5"/></svg>anchor</span>
       <span><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="#f5a524"/></svg>tag</span>
       <span><svg width="12" height="12" viewBox="0 0 12 12"><circle cx="6" cy="6" r="4" fill="none" stroke="#e6eaed" stroke-dasharray="2 2"/></svg>simulator truth</span>
-      <span title="The engine declines positions more than 2 m outside it"><svg width="12" height="12" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="#9aa6b0" stroke-dasharray="3 2"/></svg>area boundary</span>
+      <span title="The engine declines positions more than 2 m outside it"><svg width="12" height="12" viewBox="0 0 12 12"><rect x="1.5" y="1.5" width="9" height="9" fill="none" stroke="#e6eaed" stroke-dasharray="3 2"/></svg>area boundary</span>
       <span id="gridNote"></span>
     </div>
   </section>
@@ -587,12 +594,12 @@ function drawMap() {
   for (let x = Math.ceil(xMin / step) * step; x <= xMax; x += step) {
     const [sx] = px(x, 0);
     g.append(svg('line', { x1: sx, y1: 0, x2: sx, y2: H, stroke: Math.abs(x) < 1e-9 ? '#3a444d' : '#1f272d' }));
-    if (showLabels) g.append(svg('text', { x: sx + 3, y: H - 6, fill: '#5d6973', 'font-size': 10, 'font-family': 'IBM Plex Mono', stroke: 'none' }, +x.toFixed(1) + ''));
+    if (showLabels) g.append(svg('text', { x: sx + 3, y: H - 6, fill: '#8593a0', 'font-size': 10.5, 'font-family': 'IBM Plex Mono', stroke: 'none' }, +x.toFixed(1) + ''));
   }
   for (let y = Math.ceil(yMin / step) * step; y <= yMax; y += step) {
     const [, sy] = px(0, y);
     g.append(svg('line', { x1: 0, y1: sy, x2: W, y2: sy, stroke: Math.abs(y) < 1e-9 ? '#3a444d' : '#1f272d' }));
-    if (showLabels) g.append(svg('text', { x: 4, y: sy - 3, fill: '#5d6973', 'font-size': 10, 'font-family': 'IBM Plex Mono', stroke: 'none' }, +y.toFixed(1) + ''));
+    if (showLabels) g.append(svg('text', { x: 4, y: sy - 3, fill: '#8593a0', 'font-size': 10.5, 'font-family': 'IBM Plex Mono', stroke: 'none' }, +y.toFixed(1) + ''));
   }
   root.append(g);
   $('gridNote').textContent = 'grid ' + step + ' m';
@@ -628,7 +635,7 @@ function drawMap() {
     const [x, y] = px(p[0], p[1]);
     const ag = svg('g', {});
     ag.append(svg('path', { d: `M${x} ${y - 9}L${x + 8} ${y + 6}H${x - 8}Z`, fill: '#1a2025', stroke: '#9aa6b0', 'stroke-width': 1.5 }));
-    if (showLabels) ag.append(svg('text', { x: x + 11, y: y + 4, fill: '#9aa6b0', 'font-size': 11, 'font-family': 'IBM Plex Mono' }, upper(s.id)));
+    if (showLabels) ag.append(svg('text', { x: x + 11, y: y + 4, fill: '#d4dbe0', 'font-size': 12, 'font-family': 'IBM Plex Mono' }, upper(s.id)));
     ag.append(svg('title', {}, upper(s.id) + (s.name ? ' · ' + s.name : '') + '\nx ' + p[0].toFixed(2) + ' m, y ' + p[1].toFixed(2) + ' m, z ' + (s.z_m ?? '?') + ' m'));
     root.append(ag);
   }
@@ -679,9 +686,8 @@ function ensureLeaf() {
   const sat = L.tileLayer(esri + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxNativeZoom: 19, maxZoom: 22, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics' });
   const names = L.tileLayer(esri + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxNativeZoom: 19, maxZoom: 22 });
   const streets = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxNativeZoom: 19, maxZoom: 22, attribution: '&copy; OpenStreetMap contributors' });
-  const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxNativeZoom: 20, maxZoom: 22, attribution: '&copy; OpenStreetMap contributors &copy; CARTO' });
   sat.addTo(leaf); names.addTo(leaf);
-  L.control.layers({ 'Satellite': sat, 'Streets': streets, 'Dark': dark }, { 'Place names': names }, { position: 'topright' }).addTo(leaf);
+  L.control.layers({ 'Satellite': sat, 'Streets': streets }, { 'Place names': names }, { position: 'topright' }).addTo(leaf);
   L.control.scale({ metric: true, imperial: false }).addTo(leaf);
 }
 
