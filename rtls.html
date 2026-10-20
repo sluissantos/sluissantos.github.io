@@ -208,6 +208,7 @@
     <span class="btns">
       <button class="ghost" id="viewJson" type="button">Lists JSON</button>
       <button class="ghost" id="clearTracks" type="button">Clear tracks</button>
+      <button class="ghost" id="exportRec" type="button" title="Download a page that replays the movement of every tag since this page opened (up to 1 h per tag)">Record .html</button>
     </span>
     <span class="conn" id="conn" role="status"><i></i><span id="connText">Connecting to broker...</span></span>
   </div>
@@ -318,6 +319,238 @@
   </div>
 </div>
 
+<template id="recTpl">
+<style>
+  :root { --bg:#12161a; --panel:#1a2025; --line:#262e35; --line2:#303a42; --line3:#3a444d; --fg:#e6eaed; --muted:#9aa6b0;
+    --accent:#f5a524; --accent-bg:rgba(245,165,36,.10); --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace; color-scheme:dark; }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--bg); color:var(--fg); font:14px var(--sans); }
+  header { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:6px 16px; padding:16px; border-bottom:1px solid var(--line); }
+  h1 { margin:0; font-size:22px; font-weight:600; }
+  header small { font:400 12px var(--mono); color:var(--muted); }
+  main { padding:16px; display:grid; gap:16px; grid-template-columns:minmax(0,1fr); }
+  @media (min-width:1000px) { main { grid-template-columns:minmax(0,1fr) 320px; padding:24px; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; display:flex; flex-direction:column; gap:12px; min-width:0; }
+  h2 { margin:0; font-size:15px; font-weight:600; }
+  .row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 12px; }
+  .tab, .seg button, .play { height:34px; padding:0 12px; border:1px solid var(--line2); border-radius:6px; background:transparent; color:var(--fg); font:500 13px var(--mono); cursor:pointer; }
+  .tab.on, .seg button.on { border-color:var(--accent); background:var(--accent-bg); color:var(--accent); }
+  .seg { display:inline-flex; }
+  .seg button { border-radius:0; font-family:var(--sans); font-size:12px; }
+  .seg button:first-child { border-radius:6px 0 0 6px; }
+  .seg button:last-child { border-radius:0 6px 6px 0; border-left:0; }
+  .seg button:disabled { opacity:.4; cursor:default; }
+  .play { min-width:84px; background:var(--accent); color:var(--bg); border-color:var(--accent); font-family:var(--sans); font-weight:600; }
+  select { height:34px; padding:0 8px; font:inherit; font-size:12px; color:var(--fg); background:var(--bg); border:1px solid var(--line3); border-radius:6px; }
+  input[type=range] { flex:1; min-width:180px; accent-color:var(--accent); }
+  .now { font:500 14px var(--mono); min-width:70px; }
+  .stage { position:relative; height:62vh; min-height:300px; border:1px solid var(--line2); border-radius:6px; background:#0f1316; overflow:hidden; }
+  .stage > svg, .stage > #recMap { position:absolute; inset:0; width:100%; height:100%; }
+  .legend { display:flex; flex-wrap:wrap; gap:4px 16px; font-size:13px; }
+  .tagrow { display:grid; grid-template-columns:18px 12px minmax(0,1fr); gap:8px; align-items:start; padding:8px 4px; border-bottom:1px solid var(--line); cursor:pointer; }
+  .tagrow input { margin:2px 0 0; accent-color:var(--accent); }
+  .tagrow .dot { width:12px; height:12px; border-radius:50%; margin-top:3px; }
+  .tagrow b { font:500 14px var(--mono); }
+  .tagrow small { display:block; color:var(--muted); font-size:12px; line-height:1.5; }
+  .muted { color:var(--muted); font-size:12px; line-height:1.5; }
+  .anc { display:flex; align-items:center; gap:4px; white-space:nowrap; }
+  .anc span { background:rgba(18,22,26,.85); color:var(--fg); border:1px solid var(--line3); border-radius:4px; padding:0 5px; font:500 12px var(--mono); }
+  .leaflet-tooltip.tagtip { background:rgba(18,22,26,.85); color:var(--fg); border:1px solid var(--line3); box-shadow:none; font:500 12px var(--mono); padding:1px 6px; }
+  .leaflet-tooltip.tagtip:before { display:none; }
+</style>
+<header>
+  <div class="row"><h1>Movement record</h1><small id="recSite"></small></div>
+  <small id="recSpan"></small>
+</header>
+<main>
+  <section>
+    <div class="row" id="recAreas"></div>
+    <div class="row">
+      <button class="play" id="recPlay" type="button">Play</button>
+      <select id="recSpeed" aria-label="Speed"><option value="1">1×</option><option value="2">2×</option><option value="4" selected>4×</option><option value="8">8×</option><option value="16">16×</option><option value="32">32×</option></select>
+      <input type="range" id="recSlider" min="0" max="1" step="100" aria-label="Time">
+      <span class="now" id="recNow"></span>
+    </div>
+    <div class="row">
+      <span class="seg"><button type="button" id="recPlan">Plan</button><button type="button" id="recSat">Satellite</button><button type="button" id="recStreets">Streets</button></span>
+      <select id="recTrail" aria-label="Trace"><option value="10">trace 10 s</option><option value="60" selected>trace 1 min</option><option value="300">trace 5 min</option><option value="0">whole path</option></select>
+    </div>
+    <div class="stage" id="recStage"><svg id="recSvg"></svg><div id="recMap" hidden></div></div>
+    <div class="legend"><span>▲ anchor</span><span>● tag at this moment</span><span>— path</span><span>┄ area boundary</span></div>
+  </section>
+  <section>
+    <h2>Tags</h2>
+    <div id="recTags"></div>
+    <p class="muted">Positions as the RTLS engine published them, recorded by the test page while it was open. Distances are summed between consecutive positions in the same area.</p>
+  </section>
+</main>
+<script id="rec-data" type="application/json">__RECORD_DATA__</script>
+<script>
+(() => {
+  const D = JSON.parse(document.getElementById('rec-data').textContent);
+  const $ = id => document.getElementById(id);
+  const pad = n => String(n).padStart(2, '0');
+  const hms = ts => { const d = new Date(ts); return pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds()); };
+  const dmy = ts => { const d = new Date(ts); return pad(d.getDate()) + '/' + pad(d.getMonth() + 1) + '/' + d.getFullYear(); };
+  const dur = ms => { const s = Math.round(ms / 1000); return (s >= 3600 ? Math.floor(s / 3600) + ' h ' : '') + (s >= 60 ? Math.floor(s % 3600 / 60) + ' min ' : '') + (s % 60) + ' s'; };
+  const RAD = Math.PI / 180, WA = 6378137.0, WE2 = 6.69437999014e-3;
+  function toWGS84(o, x, y) {
+    const th = (o.rotation_deg || 0) * RAD, s = Math.sin(o.lat * RAD), w = 1 - WE2 * s * s;
+    const m = WA * (1 - WE2) / (w * Math.sqrt(w)), n = WA / Math.sqrt(w);
+    const east = x * Math.cos(th) + y * Math.sin(th), north = -x * Math.sin(th) + y * Math.cos(th);
+    return [o.lat + north / m / RAD, o.lon + east / (n * Math.cos(o.lat * RAD)) / RAD];
+  }
+  const SVGNS = 'http://www.w3.org/2000/svg';
+  const svg = (tag, attrs, text) => { const e = document.createElementNS(SVGNS, tag); for (const k in attrs) e.setAttribute(k, attrs[k]); if (text !== undefined) e.textContent = text; return e; };
+
+  for (const tg of D.tags) tg.pts = tg.points.map(p => ({ ts: p[0], area: p[1], x: p[2], y: p[3], sigma: p[4], mode: p[5] }));
+  const st = { area: (D.areas.find(a => D.tags.some(t => t.pts.some(p => p.area === a.code))) || D.areas[0] || {}).code, view: 'plan', t: D.from, playing: false, hidden: {} };
+  const areaOf = c => D.areas.find(a => a.code === c);
+  if ((areaOf(st.area) || {}).origin) st.view = 'satellite';   // like the dashboard: a georeferenced area opens on the map
+  $('recSite').textContent = D.site;
+  $('recSpan').textContent = dmy(D.from) + ' · ' + hms(D.from) + ' to ' + hms(D.to) + ' (' + dur(D.to - D.from) + ') · generated ' + dmy(D.generated) + ' ' + hms(D.generated);
+  $('recSlider').min = D.from; $('recSlider').max = D.to; $('recSlider').value = D.from;
+
+  // Where each tag is at time t: interpolated between two positions less than 3 s apart, else the last one
+  function where(tg, t) {
+    const p = tg.pts; let lo = 0, hi = p.length - 1, i = -1;
+    while (lo <= hi) { const m = (lo + hi) >> 1; if (p[m].ts <= t) { i = m; lo = m + 1; } else hi = m - 1; }
+    if (i < 0) return null;
+    const a = p[i], b = p[i + 1];
+    if (b && b.area === a.area && b.ts - a.ts < 3000) { const u = (t - a.ts) / (b.ts - a.ts); return { area: a.area, x: a.x + (b.x - a.x) * u, y: a.y + (b.y - a.y) * u, i, age: 0 }; }
+    return { area: a.area, x: a.x, y: a.y, i, age: t - a.ts };
+  }
+  function trace(tg, t, code) {
+    const len = Number($('recTrail').value) * 1000, out = [];
+    for (const p of tg.pts) { if (p.ts > t) break; if (p.area === code && (!len || p.ts >= t - len)) out.push(p); }
+    return out;
+  }
+
+  // Tags: distance, time, areas
+  for (const tg of D.tags) {
+    let dist = 0;
+    for (let i = 1; i < tg.pts.length; i++) { const a = tg.pts[i - 1], b = tg.pts[i]; if (a.area === b.area && b.ts - a.ts < 5000) dist += Math.hypot(b.x - a.x, b.y - a.y); }
+    tg.dist = dist; tg.areas = [...new Set(tg.pts.map(p => p.area))];
+    const row = document.createElement('label'); row.className = 'tagrow';
+    const box = document.createElement('input'); box.type = 'checkbox'; box.checked = true; box.onchange = () => { st.hidden[tg.addr] = !box.checked; draw(); };
+    const dot = document.createElement('span'); dot.className = 'dot'; dot.style.background = tg.color;
+    const txt = document.createElement('span');
+    const b = document.createElement('b'); b.textContent = tg.addr;
+    const sm = document.createElement('small');
+    sm.textContent = tg.areas.join(', ') + ' · ' + tg.pts.length + ' positions · ' + hms(tg.pts[0].ts) + ' to ' + hms(tg.pts[tg.pts.length - 1].ts) + ' · ' + dist.toFixed(0) + ' m travelled';
+    txt.append(b, sm); row.append(box, dot, txt); $('recTags').append(row);
+  }
+
+  // Area tabs and background
+  for (const a of D.areas) {
+    const t = document.createElement('button'); t.className = 'tab'; t.type = 'button'; t.textContent = a.code; t.title = a.name || '';
+    t.onclick = () => { st.area = a.code; fitted = ''; draw(); };
+    $('recAreas').append(t);
+  }
+  $('recPlan').onclick = () => { st.view = 'plan'; draw(); };
+  $('recSat').onclick = () => { st.view = 'satellite'; draw(); };
+  $('recStreets').onclick = () => { st.view = 'streets'; draw(); };
+  $('recTrail').onchange = () => draw();
+  $('recSlider').oninput = e => { st.t = Number(e.target.value); draw(); };
+  $('recPlay').onclick = () => { if (st.t >= D.to) st.t = D.from; st.playing = !st.playing; last = performance.now(); draw(); };
+
+  // Plan: metres, grid, anchors, boundary, traces, tags
+  function drawPlan(a) {
+    const el = $('recSvg'), W = el.clientWidth, H = el.clientHeight;
+    el.replaceChildren();
+    if (!W || !H) return;
+    const pts = [...a.anchors.map(q => [q.x, q.y])];
+    for (const tg of D.tags) for (const p of tg.pts) if (p.area === a.code) pts.push([p.x, p.y]);
+    if (!pts.length) return;
+    let x0 = Infinity, y0 = Infinity, x1 = -Infinity, y1 = -Infinity;
+    for (const [x, y] of pts) { x0 = Math.min(x0, x); x1 = Math.max(x1, x); y0 = Math.min(y0, y); y1 = Math.max(y1, y); }
+    const w = Math.max(x1 - x0, 10), h = Math.max(y1 - y0, 10), sc = Math.min((W - 110) / w, (H - 70) / h), cx = (x0 + x1) / 2, cy = (y0 + y1) / 2;
+    const px = (x, y) => [W / 2 + (x - cx) * sc, H / 2 - (y - cy) * sc];
+    const step = [0.5, 1, 2, 5, 10, 20, 50, 100, 200].find(s => s * sc >= 48) || 500;
+    const g = svg('g', {});
+    for (let x = Math.ceil((cx - W / 2 / sc) / step) * step; x <= cx + W / 2 / sc; x += step) { const [sx] = px(x, 0); g.append(svg('line', { x1: sx, y1: 0, x2: sx, y2: H, stroke: '#1f272d' }), svg('text', { x: sx + 3, y: H - 6, fill: '#8593a0', 'font-size': 10.5, 'font-family': 'IBM Plex Mono' }, +x.toFixed(1) + '')); }
+    for (let y = Math.ceil((cy - H / 2 / sc) / step) * step; y <= cy + H / 2 / sc; y += step) { const [, sy] = px(0, y); g.append(svg('line', { x1: 0, y1: sy, x2: W, y2: sy, stroke: '#1f272d' }), svg('text', { x: 4, y: sy - 3, fill: '#8593a0', 'font-size': 10.5, 'font-family': 'IBM Plex Mono' }, +y.toFixed(1) + '')); }
+    el.append(g);
+    if (a.hull.length >= 3) el.append(svg('polygon', { points: a.hull.map(p => px(p[0], p[1]).join(',')).join(' '), fill: 'none', stroke: '#9aa6b0', 'stroke-dasharray': '6 4', 'stroke-width': 1.2 }));
+    for (const q of a.anchors) { const [x, y] = px(q.x, q.y); el.append(svg('path', { d: `M${x} ${y - 9}L${x + 8} ${y + 6}H${x - 8}Z`, fill: '#1a2025', stroke: '#e6eaed', 'stroke-width': 1.5 }), svg('text', { x: x + 11, y: y + 4, fill: '#d4dbe0', 'font-size': 12, 'font-family': 'IBM Plex Mono' }, q.id)); }
+    for (const tg of D.tags) {
+      if (st.hidden[tg.addr]) continue;
+      const tr = trace(tg, st.t, a.code);
+      if (tr.length > 1) el.append(svg('polyline', { points: tr.map(p => px(p.x, p.y).map(n => n.toFixed(1)).join(',')).join(' '), fill: 'none', stroke: tg.color, 'stroke-width': 2, 'stroke-opacity': .8, 'stroke-linejoin': 'round' }));
+      const now = where(tg, st.t);
+      if (!now || now.area !== a.code || now.age > 60000) continue;
+      const [x, y] = px(now.x, now.y), op = now.age > 5000 ? .45 : 1;
+      el.append(svg('circle', { cx: x, cy: y, r: 7, fill: tg.color, stroke: '#12161a', 'stroke-width': 2, opacity: op }), svg('text', { x: x + 11, y: y - 8, fill: tg.color, 'font-size': 12, 'font-weight': 500, 'font-family': 'IBM Plex Mono', opacity: op }, tg.addr));
+    }
+  }
+
+  // Map: the same marks on satellite or street tiles (needs internet)
+  let map = null, base = '', fixedFor = '', fitted = '', layers = {}, fixedLayer = null, live = null;
+  function drawGeo(a) {
+    if (!window.L) { $('recMap').textContent = 'The map needs an internet connection.'; return; }
+    if (!map) {
+      map = L.map('recMap', { maxZoom: 22 });
+      const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+      layers.satellite = [L.tileLayer(esri + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxNativeZoom: 19, maxZoom: 22, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics' }), L.tileLayer(esri + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxNativeZoom: 19, maxZoom: 22 })];
+      layers.streets = [L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxNativeZoom: 19, maxZoom: 22, attribution: '&copy; OpenStreetMap contributors' })];
+      L.control.scale({ metric: true, imperial: false }).addTo(map);
+    }
+    map.invalidateSize({ pan: false });
+    if (base !== st.view) { for (const k in layers) layers[k].forEach(l => k === st.view ? l.addTo(map) : l.remove()); base = st.view; fixedFor = ''; }
+    const ll = (x, y) => toWGS84(a.origin, x, y), ink = st.view === 'streets' ? '#1b2230' : '#ffffff';
+    if (fixedFor !== a.code + base) {
+      fixedFor = a.code + base;
+      if (fixedLayer) fixedLayer.remove();
+      fixedLayer = L.layerGroup().addTo(map);
+      if (a.hull.length >= 3) L.polygon(a.hull.map(p => ll(p[0], p[1])), { color: ink, weight: 1.5, dashArray: '6 4', fill: false, interactive: false }).addTo(fixedLayer);
+      for (const q of a.anchors) L.marker(ll(q.x, q.y), { icon: L.divIcon({ className: 'anc', html: '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 1.5l6.5 12H1.5z" fill="#1a2025" stroke="#ffffff" stroke-width="1.5"/></svg><span>' + q.id + '</span>', iconSize: null, iconAnchor: [8, 10] }) }).addTo(fixedLayer);
+    }
+    if (fitted !== a.code) { fitted = a.code; const pts = a.anchors.map(q => ll(q.x, q.y)); if (pts.length) map.fitBounds(L.latLngBounds(pts).pad(0.2), { maxZoom: 20 }); else map.setView([a.origin.lat, a.origin.lon], 19); }
+    if (live) live.remove();
+    live = L.layerGroup().addTo(map);
+    for (const tg of D.tags) {
+      if (st.hidden[tg.addr]) continue;
+      const tr = trace(tg, st.t, a.code);
+      if (tr.length > 1) L.polyline(tr.map(p => ll(p.x, p.y)), { color: tg.color, weight: 3, opacity: .85, interactive: false }).addTo(live);
+      const now = where(tg, st.t);
+      if (!now || now.area !== a.code || now.age > 60000) continue;
+      const op = now.age > 5000 ? .45 : 1;
+      L.circleMarker(ll(now.x, now.y), { radius: 7, color: '#12161a', weight: 2, fillColor: tg.color, fillOpacity: op, opacity: op }).bindTooltip(tg.addr, { permanent: true, direction: 'right', offset: [9, 0], className: 'tagtip' }).addTo(live);
+    }
+  }
+
+  function draw() {
+    const a = areaOf(st.area);
+    [...$('recAreas').children].forEach(b => b.className = 'tab' + (b.textContent === st.area ? ' on' : ''));
+    const georef = !!(a && a.origin);
+    if (!georef) st.view = 'plan';
+    $('recSat').disabled = $('recStreets').disabled = !georef;
+    $('recPlan').className = st.view === 'plan' ? 'on' : ''; $('recSat').className = st.view === 'satellite' ? 'on' : ''; $('recStreets').className = st.view === 'streets' ? 'on' : '';
+    $('recSvg').hidden = st.view !== 'plan'; $('recMap').hidden = st.view === 'plan';
+    $('recPlay').textContent = st.playing ? 'Pause' : 'Play';
+    $('recSlider').value = st.t; $('recNow').textContent = hms(st.t);
+    if (!a) return;
+    if (st.view === 'plan') drawPlan(a); else drawGeo(a);
+  }
+  let last = performance.now(), acc = 0;
+  function frame(now) {
+    const dt = now - last; last = now;
+    if (st.playing) {
+      st.t = Math.min(D.to, st.t + dt * Number($('recSpeed').value));
+      if (st.t >= D.to) st.playing = false;
+      acc += dt;
+      if (acc > 60) { acc = 0; draw(); }   // about 16 frames a second
+    }
+    requestAnimationFrame(frame);
+  }
+  new ResizeObserver(() => draw()).observe($('recStage'));
+  draw();
+  requestAnimationFrame(frame);
+})();
+</script>
+</template>
+
 <script>
 const $ = id => document.getElementById(id);
 const pad = n => String(n).padStart(2, '0');
@@ -349,7 +582,7 @@ const TOPIC = {
   truth:    SITE + '/rangesim/truth/+',     // true positions of the simulated tags
 };
 const clientId = 'web-' + Math.random().toString(16).slice(2, 10);
-const TRACK_MAX = 1200;            // points kept per tag for the CSV export: 10 min at 2 per second
+const TRACK_MAX = 7200;            // points kept per tag for the exports: 1 h at 2 per second
 const STALE_MS = 10000;            // a tag without a position for this long is drawn faded
 const SOURCES = ['planta', 'trena', 'laser', 'celular', 'rtk', 'gnss sensor', 'autocalibração'];
 const COLORS = ['#f5a524', '#4cc9f0', '#7be8ab', '#ff9d9d', '#c3a6ff', '#ffd166', '#5ad1c4', '#f28fd1'];
@@ -1142,6 +1375,36 @@ $('sendLists').onclick = () => {
   render();
 };
 $('discard').onclick = () => { state.draft = null; state.sendErr = ''; state.cfgChangedUnder = false; render(); };
+
+// A movement record: a standalone page that replays every tag kept by this page, on the plan or a map.
+$('exportRec').onclick = () => {
+  const L0 = lists();
+  const tags = Object.values(state.tags).filter(t => t.track.length > 1).sort((a, b) => a.addr < b.addr ? -1 : 1)
+    .map(t => ({ addr: t.addr, color: colorOf(t.addr), points: t.track.map(p => [p.ts, p.area, p.x, p.y, p.sigma, p.mode]) }));
+  if (!tags.length) { $('exportRec').textContent = 'No movement yet'; setTimeout(() => { $('exportRec').textContent = 'Record .html'; }, 2000); return; }
+  const areas = areaCodes().map(code => {
+    const a = areaOf(code) || {};
+    const anchors = L0.sensors.filter(s => s.role === 'anchor' && upper(s.area) === code).map(s => ({ s, p: sensorXY(s) })).filter(q => q.p)
+      .map(q => ({ id: upper(q.s.id), x: +q.p[0].toFixed(3), y: +q.p[1].toFixed(3), z: q.s.z_m }));
+    return { code, name: a.name || '', origin: a.origin || null, anchors, hull: convexHull(anchors.map(q => [q.x, q.y])) };
+  });
+  const times = tags.flatMap(t => [t.points[0][0], t.points[t.points.length - 1][0]]);
+  const data = { site: SITE, generated: Date.now(), from: Math.min(...times), to: Math.max(...times), areas, tags };
+  const json = JSON.stringify(data).replace(/</g, '\\u003c');   // nothing in the data can close the script
+  const head = '<!doctype html>\n<html lang="en">\n<head>\n<meta charset="utf-8">\n<meta name="viewport" content="width=device-width, initial-scale=1">\n'
+    + '<title>Movement record · ' + SITE + '</title>\n'
+    + '<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">\n'
+    + '<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">\n'
+    + '<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"><\/script>\n</head>\n<body>\n';
+  const html = head + $('recTpl').innerHTML.replace('__RECORD_DATA__', () => json) + '\n</body>\n</html>\n';
+  const d = new Date(data.from);
+  const name = 'movement-record-' + d.getFullYear() + pad(d.getMonth() + 1) + pad(d.getDate()) + '-' + pad(d.getHours()) + pad(d.getMinutes()) + '.html';
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([html], { type: 'text/html' }));
+  a.download = name;
+  document.body.append(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+};
 
 function exportTrack(addr) {
   const t = state.tags[addr];
