@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
 <style>
   :root {
     --bg:#12161a; --panel:#1a2025; --line:#262e35; --line2:#303a42; --line3:#3a444d;
@@ -114,7 +116,7 @@
   .toggles input { width:16px; height:16px; margin:0; accent-color:var(--accent); }
   .filter.small { height:32px; font-size:12px; padding:0 6px; margin-left:-6px; }
   .mapwrap { position:relative; height:60vh; min-height:280px; border:1px solid var(--line2); border-radius:6px; background:#0f1316; overflow:hidden; touch-action:none; }
-  .mapwrap svg { position:absolute; inset:0; width:100%; height:100%; display:block; }
+  .mapwrap > #map { position:absolute; inset:0; width:100%; height:100%; display:block; }
   .mapwrap .hint { position:absolute; left:12px; bottom:10px; font-size:12px; color:var(--muted); pointer-events:none; }
   .mapwrap .zoom { position:absolute; right:10px; top:10px; display:flex; flex-direction:column; gap:6px; }
   .mapwrap .zoom button { width:36px; height:36px; border:1px solid var(--line3); border-radius:6px; background:rgba(26,32,37,.92); color:var(--fg); font:500 16px var(--mono); }
@@ -170,6 +172,18 @@
   .dialog .close:hover { background:#2a333b; }
   .dialog .problem { font-size:12px; color:var(--bad-fg); line-height:1.4; }
   pre { margin:0; padding:16px; background:var(--bg); border:1px solid var(--line2); border-radius:6px; font:400 12px/1.6 var(--mono); color:#d7dde2; white-space:pre-wrap; overflow-wrap:anywhere; overflow-y:auto; min-height:0; max-height:60vh; }
+  /* Map background (satellite, streets) for georeferenced areas */
+  .mapwrap #leaf { position:absolute; inset:0; background:#0f1316; }
+  .seg { display:inline-flex; border:1px solid var(--line2); border-radius:6px; overflow:hidden; margin-right:4px; }
+  .seg button { height:32px; padding:0 12px; border:0; background:transparent; color:var(--fg); font-size:12px; }
+  .seg button + button { border-left:1px solid var(--line2); }
+  .seg button.on { background:var(--accent-bg); color:var(--accent); }
+  .seg button:disabled { opacity:.4; cursor:default; }
+  .leaflet-container { font-family:var(--sans); }
+  .anc-label { display:flex; align-items:center; gap:4px; white-space:nowrap; font:500 11px var(--mono); color:#fff; text-shadow:0 0 3px #000, 0 0 2px #000; }
+  .anc-label svg { flex-shrink:0; }
+  .leaflet-tooltip.tagtip { background:rgba(18,22,26,.85); color:var(--fg); border:1px solid var(--line3); box-shadow:none; font:500 12px var(--mono); padding:1px 6px; }
+  .leaflet-tooltip.tagtip:before { display:none; }
 </style>
 </head>
 <body>
@@ -222,6 +236,9 @@
       <div class="tabs" id="areaTabs" role="tablist" aria-label="Trilateration area"></div>
     </div>
     <div class="toggles">
+      <span class="seg" role="group" aria-label="Background">
+        <button type="button" id="mPlan">Plan</button><button type="button" id="mMap">Map</button>
+      </span>
       <label><input type="checkbox" id="tTracks" checked> Tracks</label>
       <select class="filter small" id="trailLen" aria-label="Track length on the map">
         <option value="10">last 10 s</option>
@@ -234,6 +251,7 @@
     </div>
     <div class="mapwrap" id="mapWrap">
       <svg id="map" aria-label="Map of the area"></svg>
+      <div id="leaf" hidden></div>
       <div class="zoom">
         <button type="button" id="zoomIn" aria-label="Zoom in">+</button>
         <button type="button" id="zoomOut" aria-label="Zoom out">−</button>
@@ -384,6 +402,13 @@ function toLocal(o, lat, lon) {
   const th = (o.rotation_deg || 0) * RAD;
   return [east * Math.cos(th) - north * Math.sin(th), east * Math.sin(th) + north * Math.cos(th)];
 }
+// Inverse of toLocal: metres in the frame of an area to latitude and longitude.
+function toWGS84(o, x, y) {
+  const th = (o.rotation_deg || 0) * RAD;
+  const east = x * Math.cos(th) + y * Math.sin(th), north = -x * Math.sin(th) + y * Math.cos(th);
+  const { m, n } = radii(o.lat);
+  return [o.lat + north / m / RAD, o.lon + east / (n * Math.cos(o.lat * RAD)) / RAD];
+}
 const areaOf = code => lists().areas.find(a => upper(a.area) === code);
 // Position of a sensor in the frame of its area, or null.
 function sensorXY(s) {
@@ -455,7 +480,17 @@ function draw() {
     tabs.append(b);
   }));
 
-  drawMap();
+  // Plan (metric grid) or Map (satellite, streets): the map needs the area origin
+  const ar = areaOf(state.area), georef = !!(ar && ar.origin);
+  const onMap = georef && (state.mode || 'map') === 'map';
+  $('mMap').disabled = !georef;
+  $('mMap').title = georef ? 'Satellite and street maps' : 'Set the origin of area ' + (state.area || '') + ' to see it on a map';
+  $('mPlan').className = onMap ? '' : 'on';
+  $('mMap').className = onMap ? 'on' : '';
+  $('map').hidden = onMap;
+  $('leaf').hidden = !onMap;
+  document.querySelector('.zoom').hidden = onMap;
+  if (onMap) drawGeo(ar); else drawMap();
   drawTags();
 
   // Engine answers
@@ -615,6 +650,96 @@ function drawMap() {
     : c.anchors.length ? (c.tags.length ? '' : 'No tag in ' + state.area + ' yet.')
     : 'Area ' + state.area + ' has no anchor with a position.';
 }
+
+// ---- Map background: satellite and street tiles, like a navigation app ----
+let leaf = null;
+const geo = { area: '', sig: '', fixed: null, live: null, lastLive: 0, timer: 0, size: '' };
+function ensureLeaf() {
+  if (leaf) return;
+  leaf = L.map('leaf', { zoomControl: true, maxZoom: 22, attributionControl: true });
+  const esri = 'https://server.arcgisonline.com/ArcGIS/rest/services/';
+  const sat = L.tileLayer(esri + 'World_Imagery/MapServer/tile/{z}/{y}/{x}', { maxNativeZoom: 19, maxZoom: 22, attribution: 'Imagery &copy; Esri, Maxar, Earthstar Geographics' });
+  const names = L.tileLayer(esri + 'Reference/World_Boundaries_and_Places/MapServer/tile/{z}/{y}/{x}', { maxNativeZoom: 19, maxZoom: 22 });
+  const streets = L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', { maxNativeZoom: 19, maxZoom: 22, attribution: '&copy; OpenStreetMap contributors' });
+  const dark = L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', { subdomains: 'abcd', maxNativeZoom: 20, maxZoom: 22, attribution: '&copy; OpenStreetMap contributors &copy; CARTO' });
+  sat.addTo(leaf); names.addTo(leaf);
+  L.control.layers({ 'Satellite': sat, 'Streets': streets, 'Dark': dark }, { 'Place names': names }, { position: 'topright' }).addTo(leaf);
+  L.control.scale({ metric: true, imperial: false }).addTo(leaf);
+}
+
+function drawGeo(a) {
+  ensureLeaf();
+  const box = $('leaf').getBoundingClientRect(), size = box.width + 'x' + box.height;
+  if (size !== geo.size) { geo.size = size; leaf.invalidateSize({ pan: false }); }
+  const o = a.origin, code = state.area, c = mapContent();
+  const ll = (x, y) => toWGS84(o, x, y);
+  const labels = $('tLabels').checked;
+
+  // Anchors and boundary: rebuilt only when the lists, the area or the labels change
+  const sig = JSON.stringify([code, o, c.anchors.map(q => [q.s.id, q.p, q.s.z_m]), labels]);
+  if (sig !== geo.sig) {
+    geo.sig = sig;
+    if (geo.fixed) geo.fixed.remove();
+    geo.fixed = L.layerGroup().addTo(leaf);
+    const hullPts = convexHull(c.anchors.map(q => q.p));
+    if (hullPts.length >= 3) L.polygon(hullPts.map(p => ll(p[0], p[1])), { color: '#ffffff', weight: 1.5, opacity: .85, dashArray: '6 4', fill: false, interactive: false }).addTo(geo.fixed);
+    for (const { s, p } of c.anchors) {
+      const html = '<svg width="16" height="16" viewBox="0 0 16 16"><path d="M8 1.5l6.5 12H1.5z" fill="#1a2025" stroke="#ffffff" stroke-width="1.5"/></svg>' + (labels ? '<span>' + upper(s.id) + '</span>' : '');
+      L.marker(ll(p[0], p[1]), { icon: L.divIcon({ className: 'anc-label', html, iconSize: null, iconAnchor: [8, 10] }), keyboard: false,
+        title: upper(s.id) + (s.name ? ' · ' + s.name : '') + ' · z ' + (s.z_m ?? '?') + ' m' }).addTo(geo.fixed);
+    }
+  }
+  if (geo.area !== code) {                // a new area: frame its anchors, then the user pans and zooms freely
+    geo.area = code;
+    const pts = c.anchors.map(q => ll(q.p[0], q.p[1]));
+    if (pts.length) leaf.fitBounds(L.latLngBounds(pts).pad(0.2), { maxZoom: 20 }); else leaf.setView([o.lat, o.lon], 19);
+  }
+
+  // Tags, traces, ellipses, truth: at most 4 redraws a second
+  const now = Date.now();
+  if (now - geo.lastLive < 250) {
+    if (!geo.timer) geo.timer = setTimeout(() => { geo.timer = 0; render(); }, 260);
+    return;
+  }
+  geo.lastLive = now;
+  if (geo.live) geo.live.remove();
+  geo.live = L.layerGroup().addTo(leaf);
+  if ($('tTracks').checked) {
+    for (const t of c.tags) {
+      const since = (t.track.length ? t.track[t.track.length - 1].ts : 0) - Number($('trailLen').value) * 1000;
+      const pts = t.track.filter(q => q.area === code && q.ts >= since).map(q => ll(q.x, q.y));
+      const sel = t.addr === state.selected;
+      if (pts.length > 1) L.polyline(pts, { color: colorOf(t.addr), weight: sel ? 3 : 2, opacity: sel ? .95 : .7, interactive: false }).addTo(geo.live);
+    }
+  }
+  if ($('tTruth').checked) {
+    for (const [addr, tv] of c.truth) {
+      const at = ll(tv.x, tv.y), t = state.tags[addr];
+      if (t && t.pos && t.pos.area === code) L.polyline([at, ll(t.pos.x, t.pos.y)], { color: '#ffffff', weight: 1, opacity: .6, dashArray: '2 4', interactive: false }).addTo(geo.live);
+      L.circleMarker(at, { radius: 6, color: '#ffffff', weight: 1.5, opacity: .9, dashArray: '2 3', fill: false, interactive: false }).addTo(geo.live);
+    }
+  }
+  for (const t of c.tags.slice().sort((p, q) => (p.addr === state.selected) - (q.addr === state.selected))) {
+    const p = t.pos, col = colorOf(t.addr), sel = t.addr === state.selected, faded = now - t.seen > STALE_MS;
+    if ($('tEllipses').checked && p.ellipse) {
+      const ring = [], ph = p.ellipse.angle_deg * RAD;
+      for (let k = 0; k < 36; k++) {
+        const u = k * 10 * RAD, dx = p.ellipse.a * Math.cos(u), dy = p.ellipse.b * Math.sin(u);
+        ring.push(ll(p.x + dx * Math.cos(ph) - dy * Math.sin(ph), p.y + dx * Math.sin(ph) + dy * Math.cos(ph)));
+      }
+      L.polygon(ring, { color: col, weight: 1, opacity: .7, fillColor: col, fillOpacity: .18, interactive: false }).addTo(geo.live);
+    }
+    const at = ll(p.x, p.y);
+    if (sel) L.circleMarker(at, { radius: 12, color: '#f5a524', weight: 2.5, fill: false, interactive: false }).addTo(geo.live);
+    const m = L.circleMarker(at, { radius: 7, color: '#12161a', weight: 2, fillColor: col, fillOpacity: faded ? .45 : 1, opacity: faded ? .45 : 1 })
+      .on('click', () => select(t.addr)).addTo(geo.live);
+    if (labels || sel) m.bindTooltip(t.addr, { permanent: true, direction: 'right', offset: [9, 0], className: 'tagtip' });
+  }
+  $('mapHint').textContent = '';
+  $('gridNote').textContent = '';
+}
+$('mPlan').onclick = () => { state.mode = 'plan'; render(); };
+$('mMap').onclick = () => { state.mode = 'map'; geo.size = ''; render(); };
 
 // Zoom and pan, by mouse or touch
 function zoomBy(f, sx, sy) {
