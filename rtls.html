@@ -82,6 +82,9 @@
   .cell-sub small { color:var(--muted); font-size:11px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .cell-sub b { font:400 12px var(--mono); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .changed { box-shadow:inset 3px 0 0 var(--accent); }
+  .group-head { position:sticky; top:0; z-index:1; display:flex; align-items:baseline; gap:8px; padding:12px 8px 6px; background:var(--panel); border-bottom:1px solid var(--line2); }
+  .group-head b { font:500 13px var(--mono); color:var(--accent); }
+  .group-head small { font-size:11px; color:var(--muted); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
 
   .chip { display:inline-flex; align-items:center; justify-content:center; gap:4px; height:22px; padding:0 8px; border-radius:11px; font-size:11px; font-weight:600; letter-spacing:.03em; }
   .chip.ok { background:var(--ok-bg); color:var(--ok-fg); }
@@ -443,20 +446,35 @@ function draw() {
   }));
   $('noAreas').hidden = L.areas.length > 0;
 
-  // Sensors, anchors grouped by area first
-  const order = L.sensors.map((s, i) => ({ s, i })).sort((p, q) =>
-    (p.s.role === 'anchor' ? 0 : 1) - (q.s.role === 'anchor' ? 0 : 1) || String(p.s.area || '').localeCompare(String(q.s.area || '')) || String(p.s.id).localeCompare(String(q.s.id)));
+  // Sensors grouped under their area, presence sensors last
   const changedSensor = s => state.draft && state.cfg && JSON.stringify(state.cfg.sensors.find(x => upper(x.id) === upper(s.id))) !== JSON.stringify(s);
-  fill('sensorList', JSON.stringify([L.sensors, L.areas, !!state.draft]), list => order.forEach(({ s, i }) => {
-    const b = el('button', 'tr cols-sensor' + (changedSensor(s) ? ' changed' : '')); b.type = 'button';
-    const role = s.role === 'anchor' ? el('span', 'pill base', 'anchor') : el('span', 'pill grey', 'presence');
-    const pos = el('span', 'cell-sub');
-    const where = has(s.x) ? 'x ' + s.x + ' · y ' + s.y : has(s.lat) ? fix(s.lat, 6) + ', ' + fix(s.lon, 6) : 'no position';
-    pos.append(el('b', '', where), el('small', '', [s.role === 'anchor' ? upper(s.area) : '', s.name, s.source, has(s.z_m) ? 'z ' + s.z_m + ' m' : ''].filter(Boolean).join(' · ')));
-    b.append(el('span', 'cell-mono', upper(s.id)), role, pos);
-    b.onclick = () => openSensor(i);
-    list.append(b);
-  }));
+  fill('sensorList', JSON.stringify([L.sensors, L.areas, !!state.draft]), list => {
+    const groups = areaCodes().map(c => ({ key: c, title: c, sub: (areaOf(c) || {}).name || '', items: [] }));
+    const presence = { key: '', title: 'Presence', sub: 'not in an area', items: [] };
+    const byKey = Object.fromEntries(groups.map(g => [g.key, g]));
+    L.sensors.forEach((s, i) => {
+      const k = s.role === 'anchor' ? upper(s.area) : '';
+      if (!k) { presence.items.push({ s, i }); return; }
+      if (!byKey[k]) groups.push(byKey[k] = { key: k, title: k, sub: 'area not in the list', items: [] });   // the engine will refuse it
+      byKey[k].items.push({ s, i });
+    });
+    for (const g of [...groups, presence]) {
+      if (!g.items.length) continue;
+      const h = el('div', 'group-head');
+      h.append(el('b', '', g.title), el('small', '', [g.sub, g.items.length + (g.items.length === 1 ? ' sensor' : ' sensors')].filter(Boolean).join(' · ')));
+      list.append(h);
+      g.items.sort((p, q) => String(p.s.id).localeCompare(String(q.s.id))).forEach(({ s, i }) => {
+        const b = el('button', 'tr cols-sensor' + (changedSensor(s) ? ' changed' : '')); b.type = 'button';
+        const role = s.role === 'anchor' ? el('span', 'pill base', 'anchor') : el('span', 'pill grey', 'presence');
+        const pos = el('span', 'cell-sub');
+        const where = has(s.x) ? 'x ' + s.x + ' · y ' + s.y : has(s.lat) ? fix(s.lat, 6) + ', ' + fix(s.lon, 6) : 'no position';
+        pos.append(el('b', '', where), el('small', '', [s.name, s.source, has(s.z_m) ? 'z ' + s.z_m + ' m' : ''].filter(Boolean).join(' · ')));
+        b.append(el('span', 'cell-mono', upper(s.id)), role, pos);
+        b.onclick = () => openSensor(i);
+        list.append(b);
+      });
+    }
+  });
   $('noSensors').hidden = L.sensors.length > 0;
 
   // Draft
