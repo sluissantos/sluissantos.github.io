@@ -59,18 +59,20 @@
   @media (max-width:1099px) {
     html, body { height:auto; min-height:100%; }   /* the page scrolls, so the SOS banner can stay in view */
     .sosbar { position:sticky; top:0; z-index:5; }
+    #tagsSec { order:-1; }   /* one column: the tags come before the form */
+    #tagList { max-height:none; overflow:visible; }   /* and grow with the page, no scroll inside a scroll */
   }
   @media (min-width:1100px) {
-    main { padding:24px; grid-template-columns:300px minmax(0,1.3fr) minmax(0,1fr); align-content:stretch; }
+    main { padding:24px; grid-template-columns:300px minmax(0,1.35fr) minmax(0,1.1fr); align-content:stretch; }
     main .scroll, main .tagpick { min-height:0; flex:1; max-height:none; }   /* the lists fill their block down to its bottom edge */
     main .tagpick { min-height:120px; }
     main fieldset.targets { min-height:200px; }   /* never shorter than its list: the form scrolls instead of overlapping */
     main > section:first-child { overflow-y:auto; }   /* a short window scrolls the form instead of squeezing the tag list */
     section { min-height:0; }
     .col { min-height:0; }
-    #tagsSec { flex:0 1 auto; max-height:50%; }
-    main #tagList { flex:0 1 auto; }
-    #upSec { flex:1 1 0; min-height:200px; }
+    #downSec { flex:1 1 0; min-height:0; }
+    #upSec { flex:0 0 auto; }
+    #upSec:has(details[open]) { flex:1 1 0; min-height:220px; }
   }
   section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; display:flex; flex-direction:column; gap:12px; min-width:0; }
   h2 { margin:0; font-size:15px; font-weight:600; }
@@ -86,7 +88,7 @@
   .tr { display:grid; column-gap:12px; align-items:center; min-height:56px; padding:6px 8px; border-bottom:1px solid var(--line); font-size:13px; width:100%; }
   button.tr { border:0; border-bottom:1px solid var(--line); background:transparent; color:var(--fg); text-align:left; }
   button.tr:hover { background:#242c33; }
-  .cols-down { grid-template-columns:60px 48px 28px minmax(0,1fr) 68px 68px; column-gap:10px; }
+  .cols-down { grid-template-columns:56px 48px 28px minmax(0,1fr) 60px 60px; column-gap:10px; }
   .msg { overflow-wrap:anywhere; }
   .msg .op { font:500 11px var(--mono); color:var(--accent); margin-right:6px; }
   .msg small { display:block; color:var(--muted); font-size:11px; margin-top:3px; }
@@ -115,14 +117,51 @@
   .pill.base { background:rgba(245,165,36,.16); color:var(--accent); }
   .pill.sos { background:var(--sos); color:#fff; }
 
-  /* Tags: merged state per tag */
-  .tagcard { border:1px solid var(--line2); border-radius:6px; padding:8px 10px; display:flex; flex-direction:column; gap:6px; }
-  .tagcard + .tagcard { margin-top:6px; }
-  .tagcard.sos { border-color:var(--sos); background:rgba(201,60,65,.10); }
-  .tagcard .l1 { display:flex; flex-wrap:wrap; align-items:center; gap:6px 8px; }
-  .tagcard .addr { font:500 14px var(--mono); margin-right:2px; }
-  .tagcard .mv { font-size:12px; color:var(--muted); }
-  .tagcard .seen { margin-left:auto; font:400 12px var(--mono); color:var(--muted); }
+  /* Tags: merged state per tag, the main block of the page */
+  #tagsSec { gap:14px; }
+  #tagList { display:grid; grid-template-columns:repeat(auto-fill,minmax(270px,1fr)); gap:12px; align-content:start; }
+  .tagsum { display:flex; flex-wrap:wrap; gap:8px; }
+  .tagsum .sum { display:inline-flex; align-items:baseline; gap:6px; padding:6px 12px; border:1px solid var(--line2); border-radius:6px; font-size:12px; color:var(--muted); }
+  .tagsum .sum b { font:600 18px var(--sans); color:var(--fg); }
+  .tagsum .sum.sos { border-color:var(--sos); background:rgba(201,60,65,.14); }
+  .tagsum .sum.sos b { color:#fff; }
+  .tagcard { border:1px solid var(--line2); border-radius:8px; padding:12px 14px; display:flex; flex-direction:column; gap:12px; background:#1e252b; min-width:0; }
+  .tagcard.sos { border-color:var(--sos); background:rgba(201,60,65,.12); box-shadow:inset 4px 0 0 var(--sos); }
+  .tagcard.stale { opacity:.55; }
+  .tagcard .l1 { display:flex; align-items:center; gap:8px; }
+  .tagcard .addr { font:500 20px var(--mono); letter-spacing:.02em; }
+  .tagcard .seen { margin-left:auto; display:flex; flex-direction:column; align-items:flex-end; font:400 11px var(--mono); color:var(--muted); line-height:1.35; }
+  .tagcard .seen b { font:500 12px var(--mono); color:var(--fg); }
+  .badges { display:flex; flex-wrap:wrap; gap:6px; }
+  .badge { display:inline-flex; align-items:center; gap:6px; height:28px; padding:0 11px 0 9px; border-radius:14px; font-size:12px; font-weight:600; letter-spacing:.02em; white-space:nowrap; }
+  .badge svg { width:16px; height:16px; flex-shrink:0; }
+  .badge.moving { background:rgba(76,201,240,.16); color:#86dcf7; }
+  .badge.stopped { background:var(--line2); color:#c3ccd3; }
+  .badge.base { background:rgba(245,165,36,.16); color:var(--accent); }
+  .badge.sos { background:var(--sos); color:#fff; }
+  .badge.sos.live svg { animation:sospulse 1.2s ease-in-out infinite; }
+  @media (prefers-reduced-motion: reduce) { .badge.sos.live svg { animation:none; } }
+  .batrow { display:flex; align-items:center; gap:10px; }
+  .batrow svg { width:22px; height:22px; flex-shrink:0; color:var(--muted); }
+  .batrow .bar { flex:1; height:10px; border-radius:5px; background:var(--line2); overflow:hidden; }
+  .batrow .bar i { display:block; height:10px; border-radius:5px; }
+  .batrow b { width:44px; text-align:right; font:500 14px var(--mono); }
+  .lv-ok { background:#5fcf93; } .lv-mid { background:var(--accent); } .lv-low { background:#ff7070; }
+  .tinfo { display:grid; grid-template-columns:auto minmax(0,1fr); gap:6px 12px; font-size:12px; align-items:baseline; }
+  .tinfo dt { color:var(--muted); }
+  .tinfo dd { margin:0; font:400 12px var(--mono); overflow-wrap:anywhere; }
+  .tinfo dd .anc { display:inline-block; padding:1px 6px; margin:0 4px 2px 0; border:1px solid var(--line3); border-radius:4px; }
+
+  /* Received uplinks: a log, folded by default */
+  #upSec { padding:12px 16px; }
+  #upDetails > summary { display:flex; align-items:baseline; gap:10px; cursor:pointer; list-style:none; }
+  #upDetails > summary::-webkit-details-marker { display:none; }
+  #upDetails > summary h2 { font-size:13px; font-weight:500; color:var(--muted); }
+  #upDetails > summary small { font:400 12px var(--mono); color:var(--muted); }
+  #upDetails > summary .caret { color:var(--muted); transition:transform .15s; display:inline-block; }
+  #upDetails[open] > summary .caret { transform:rotate(90deg); }
+  #upDetails[open] { display:flex; flex-direction:column; gap:12px; height:100%; min-height:0; }
+  #upDetails .updetail { display:flex; flex-direction:column; gap:12px; min-height:0; flex:1; }
   .kv { display:flex; flex-wrap:wrap; align-items:center; gap:4px 14px; font-size:12px; color:var(--muted); }
   .kv .it { display:inline-flex; align-items:center; gap:5px; }
   .kv b { font:400 12px var(--mono); color:var(--fg); }
@@ -271,42 +310,46 @@
     </div>
   </section>
 
-  <section aria-labelledby="h-down">
+  <section id="tagsSec" aria-labelledby="h-tags">
+    <div class="headrow">
+      <h2 id="h-tags">Tags</h2>
+      <small id="tagsNote">merged state from the messaging manager</small>
+    </div>
+    <div class="tagsum" id="tagSum"></div>
+    <div class="scroll" id="tagList"></div>
+    <p class="empty" id="noTagState" style="margin:0">No tag state received yet.</p>
+  </section>
+
+  <div class="col">
+    <section id="downSec" aria-labelledby="h-down">
     <div class="headrow">
       <h2 id="h-down">Sent downlinks</h2>
       <small>server to tag · click to see the JSON</small>
       <select class="filter" id="filterDown" aria-label="Show one tag or all"></select>
     </div>
-    <div class="tablewrap" style="--tw:500px">
+    <div class="tablewrap" style="--tw:452px">
       <div class="thead cols-down"><span>Time</span><span>Tag</span><span>ID</span><span>Command</span><span>Delivered</span><span>Viewed</span></div>
       <div class="scroll" id="downlinks"></div>
       <p class="empty" id="noDownlinks" style="margin:16px 8px">No downlink sent yet.</p>
     </div>
-  </section>
-
-  <div class="col">
-    <section id="tagsSec" aria-labelledby="h-tags">
-      <div class="headrow">
-        <h2 id="h-tags">Tags</h2>
-        <small id="tagsNote">merged state from the messaging manager</small>
-      </div>
-      <div class="scroll" id="tagList"></div>
-      <p class="empty" id="noTagState" style="margin:0">No tag state received yet.</p>
     </section>
 
+
     <section id="upSec" aria-labelledby="h-up">
-      <div class="headrow">
-        <div style="display:flex;flex-direction:column;gap:2px">
-          <h2 id="h-up">Received uplinks</h2>
-          <small>tag state updates, one per message</small>
+      <details id="upDetails">
+        <summary><span class="caret" aria-hidden="true">&#9656;</span><h2 id="h-up">Received uplinks</h2><small id="upCount"></small></summary>
+        <div class="updetail">
+          <div class="headrow">
+            <small>tag state updates, one per message</small>
+            <select class="filter" id="filterUp" aria-label="Show one tag or all"></select>
+          </div>
+          <div class="tablewrap" style="--tw:398px">
+            <div class="thead cols-up"><span>Time</span><span>Tag</span><span title="Anchors that hear the tag">Via</span><span>Motion</span><span>SOS</span><span>Battery</span></div>
+            <div class="scroll" id="uplinks"></div>
+            <p class="empty" id="noUplinks" style="margin:16px 8px" hidden>No status for this tag yet.</p>
+          </div>
         </div>
-        <select class="filter" id="filterUp" aria-label="Show one tag or all"></select>
-      </div>
-      <div class="tablewrap" style="--tw:398px">
-        <div class="thead cols-up"><span>Time</span><span>Tag</span><span title="Anchors that hear the tag">Via</span><span>Motion</span><span>SOS</span><span>Battery</span></div>
-        <div class="scroll" id="uplinks"></div>
-        <p class="empty" id="noUplinks" style="margin:16px 8px" hidden>No status for this tag yet.</p>
-      </div>
+      </details>
     </section>
   </div>
 </main>
@@ -340,10 +383,14 @@ const parseTs = s => { const t = Date.parse(s); return Number.isFinite(t) ? t : 
 const ICON = {
   ok:   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 8.5l3.2 3L13 4.5"/></svg>',
   no:   '<svg width="16" height="16" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 4l8 8M12 4l-8 8"/></svg>',
-  move: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2 8h11M9 4l4 4-4 4"/></svg>',
-  stop: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M5.5 3.5v9M10.5 3.5v9"/></svg>',
-  sos:  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5l6 10.5H2z"/><path d="M8 7v2.6M8 11.4v.1"/></svg>',
-  alarm:'<svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 2.5l6 10.5H2z"/><path d="M8 7v2.6M8 11.4v.1"/></svg>',
+  // moving: an arrow with speed lines; stopped: a pause in a circle
+  move: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M1.5 5h3M1 8h4.5M1.5 11h3"/><path d="M7.5 8h7M11.5 4.5L15 8l-3.5 3.5"/></svg>',
+  stop: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" aria-hidden="true"><circle cx="8" cy="8" r="6.3"/><path d="M6.4 5.7v4.6M9.6 5.7v4.6"/></svg>',
+  // SOS: a siren, the dome light on its base with rays
+  sos:  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.3 12.2V9.3a3.7 3.7 0 0 1 7.4 0v2.9"/><path d="M2.6 12.2h10.8v2.1H2.6z"/><path d="M8 1.2v1.7M2.3 3.5l1.2 1.2M13.7 3.5l-1.2 1.2"/></svg>',
+  alarm:'<svg width="22" height="22" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.3 12.2V9.3a3.7 3.7 0 0 1 7.4 0v2.9"/><path d="M2.6 12.2h10.8v2.1H2.6z"/><path d="M8 1.2v1.7M2.3 3.5l1.2 1.2M13.7 3.5l-1.2 1.2"/></svg>',
+  base: '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.2" y="4.4" width="12" height="7.2" rx="1.6"/><path d="M15 7v2"/><path d="M7.9 5.6L6.1 8.3h2.6L7 10.8"/></svg>',
+  bat:  '<svg width="14" height="14" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="1.2" y="4.4" width="12" height="7.2" rx="1.6"/><path d="M15 7v2"/></svg>',
 };
 
 // Test broker: public credentials on purpose (same as index.html).
@@ -584,10 +631,31 @@ function render() {
   $('noDownlinks').hidden = dls.length > 0;
   $('noDownlinks').textContent = state.downlinks.length === 0 ? 'No downlink sent yet.' : 'No downlink for this tag.';
 
-  // Tags
-  const tags = shown(state.tags).filter(t => t.st);
-  fill('tagList', JSON.stringify(tags.map(t => [t.addr, t.anchors, t.charging, t.sos, t.st.battery, t.st.on_motion, t.st.temperature_c, t.st.version, t.st.risk_total, t.st.gnss, t.st.sos])), tl => tags.forEach(t => tl.append(tagCard(t))));
-  tags.forEach(t => { const s = document.querySelector('[data-seen="' + t.addr + '"]'); if (s) s.textContent = 'seen ' + fmtTime(t.seen); });
+  // Tags: SOS first, then the most recently heard
+  const now = Date.now();
+  const tags = shown(state.tags).filter(t => t.st).sort((a, b) =>
+    ((b.sos !== 'none') - (a.sos !== 'none')) || (b.seen - a.seen));
+  tags.forEach(t => { t.stale = now - t.seen > TAG_STALE_MS; });
+  fill('tagList', JSON.stringify(tags.map(t => [t.addr, t.anchors, t.charging, t.sos, t.stale, t.st.battery, t.st.on_motion, t.st.temperature_c,
+    t.st.version, t.st.risk_total, t.st.gnss, t.st.sos, t.st.answer])), tl => tags.forEach(t => tl.append(tagCard(t))));
+  tags.forEach(t => {
+    const s = document.querySelector('[data-seen="' + t.addr + '"]');
+    if (s) { s.replaceChildren(el('b', '', ago(t.seen)), document.createTextNode(fmtTime(t.seen))); }
+  });
+  const all = state.tags.filter(t => t.st);
+  const sum = [
+    ['', all.length, all.length === 1 ? 'tag' : 'tags'],
+    ['sos', all.filter(t => t.sos !== 'none').length, 'in SOS'],
+    ['', all.filter(t => t.st.on_motion && !t.stale).length, 'moving'],
+    ['', all.filter(t => t.charging).length, 'on the base'],
+    ['', all.filter(t => t.stale).length, 'not heard for 1 min'],
+  ];
+  fill('tagSum', JSON.stringify(sum), ts => sum.forEach(([cls, n, label], i) => {
+    if (i > 0 && n === 0) return;
+    const b = el('span', 'sum' + (cls && n ? ' ' + cls : ''));
+    b.append(el('b', '', String(n)), label);
+    ts.append(b);
+  }));
   $('noTagState').hidden = tags.length > 0;
   $('noTagState').textContent = state.filter ? 'No state for this tag yet.' : 'No tag state received yet.';
   $('tagsNote').textContent = state.filter ? 'showing ' + state.filter : 'merged state from the messaging manager';
@@ -609,6 +677,7 @@ function render() {
     ul.append(row);
   }));
   $('noUplinks').hidden = !state.filter || ups.length > 0;
+  $('upCount').textContent = state.uplinks.length ? state.uplinks.length + (state.uplinks.length === 200 ? '+' : '') + ' · last ' + fmtTime(state.uplinks[0].ts) : '';
 
   // SOS banner: every open episode, whatever the filter
   const eps = state.episodes.slice().sort((a, b) => a.since - b.since);
@@ -640,34 +709,68 @@ function render() {
   if (focusKey) { const f = document.querySelector('[data-fk="' + focusKey + '"]'); if (f && f !== document.activeElement) f.focus(); }
 }
 
+const TAG_STALE_MS = 60000;   // not heard for this long: drawn faded (the manager's ANCHOR_FRESH)
+const SOS_BADGE = { sending: 'SOS · sending', confirmed: 'SOS · help on the way', required: 'SOS · required' };
+const ANSWER_WORDS = { waiting: 'waiting for the user', yes: 'confirmed by the user', no_answer: 'no answer', none: '—' };
+function ago(ts) {
+  const sec = Math.max(0, Math.round((Date.now() - ts) / 1000));
+  if (sec < 60) return sec + ' s ago';
+  if (sec < 3600) return Math.round(sec / 60) + ' min ago';
+  return Math.round(sec / 3600) + ' h ago';
+}
+function badge(cls, iconHtml, text, title) {
+  const b = el('span', 'badge ' + cls);
+  b.innerHTML = iconHtml;
+  b.append(text);
+  if (title) b.title = title;
+  return b;
+}
 function tagCard(t) {
   const o = t.st;
-  const card = el('div', 'tagcard' + (t.sos !== 'none' ? ' sos' : ''));
+  const inSos = t.sos !== 'none';
+  const card = el('div', 'tagcard' + (inSos ? ' sos' : '') + (t.stale ? ' stale' : ''));
+
   const l1 = el('div', 'l1');
-  l1.append(el('span', 'addr', t.addr), el('span', 'mv', o.on_motion ? 'moving' : 'stopped'));
-  if (t.charging) l1.append(el('span', 'pill base', 'On base'));
-  if (t.sos !== 'none') l1.append(el('span', 'pill sos', 'SOS · ' + t.sos + (o.sos && o.sos.source ? ' (' + o.sos.source + ')' : '')));
   const seen = el('span', 'seen'); seen.dataset.seen = t.addr;
-  l1.append(seen);
+  l1.append(el('span', 'addr', t.addr), seen);
+
+  const badges = el('div', 'badges');
+  if (inSos) {
+    const src = o.sos && o.sos.source ? (SOS_SOURCE[o.sos.source] || o.sos.source) : '';
+    badges.append(badge('sos' + (t.sos === 'confirmed' ? '' : ' live'), ICON.sos, SOS_BADGE[t.sos] || 'SOS · ' + t.sos,
+      src ? 'From ' + src + (o.sos.session !== undefined ? ', session ' + o.sos.session : '') : ''));
+  }
+  badges.append(o.on_motion ? badge('moving', ICON.move, 'Moving') : badge('stopped', ICON.stop, 'Stopped'));
+  if (t.charging) badges.append(badge('base', ICON.base, 'On the base'));
 
   const bat = Math.max(0, Math.min(100, Number(o.battery) || 0));
-  const batV = el('span', 'it');
-  const mini = el('span', 'mini'); const fillBar = document.createElement('i'); fillBar.style.width = bat + '%'; mini.append(fillBar);
-  batV.append(el('span', '', 'Battery'), mini, el('b', '', bat + '%'));
-  const kv1 = el('div', 'kv');
-  kv1.append(batV,
-    kvItem('Temp', Number.isFinite(o.temperature_c) ? o.temperature_c.toFixed(1) + ' °C' : '—'),
-    kvItem('Version', o.version ? String(o.version) : '—'),
-    kvItem('Risk', o.risk_total === undefined ? '—' : String(o.risk_total)));
-  const kv2 = el('div', 'kv');
-  kv2.append(kvItem('Anchors', t.anchors.length ? t.anchors.join(', ') : 'none'));
+  const batRow = el('div', 'batrow');
+  batRow.innerHTML = t.charging ? ICON.base : ICON.bat;
+  const bar = el('span', 'bar'); const fillBar = el('i', bat >= 50 ? 'lv-ok' : bat >= 20 ? 'lv-mid' : 'lv-low'); fillBar.style.width = bat + '%'; bar.append(fillBar);
+  batRow.append(bar, el('b', '', bat + '%'));
+  batRow.title = 'Battery' + (t.charging ? ', charging' : '');
+
+  const info = el('dl', 'tinfo');
+  const row = (label, value) => {
+    info.append(el('dt', '', label));
+    const dd = el('dd');
+    if (value instanceof Node) dd.append(value); else dd.textContent = value;
+    info.append(dd);
+  };
+  const anc = el('span');
+  if (t.anchors.length) t.anchors.forEach(a => anc.append(el('span', 'anc', a))); else anc.textContent = 'none in the last minute';
+  row('Heard by', anc);
+  if (o.answer && o.answer.state && o.answer.state !== 'none') row('Last message', '#' + o.answer.message_id + ' · ' + (ANSWER_WORDS[o.answer.state] || o.answer.state));
   if (hasGnss(o.gnss)) {
     const a = mapLink(o.gnss, 'mono');
-    a.style.fontSize = '12px';
     if (o.gnss_at) a.title = 'Fix at ' + fmtDate(parseTs(o.gnss_at)) + ' ' + fmtTime(parseTs(o.gnss_at)) + ', open in Google Maps';
-    kv2.append(kvItem('GNSS', a));
-  } else kv2.append(kvItem('GNSS', '—'));
-  card.append(l1, kv1, kv2);
+    row('GNSS', a);
+  }
+  row('Temperature', Number.isFinite(o.temperature_c) ? o.temperature_c.toFixed(1) + ' °C' : '—');
+  row('Risk count', o.risk_total === undefined ? '—' : String(o.risk_total));
+  row('Version', o.version ? String(o.version) : '—');
+
+  card.append(l1, badges, batRow, info);
   return card;
 }
 
@@ -972,6 +1075,10 @@ const closePopup = () => { state.popup = null; render(); };
 $('popBack').onclick = closePopup;
 $('popClose').onclick = closePopup;
 document.addEventListener('keydown', e => { if (e.key === 'Escape' && state.popup) closePopup(); });
+
+try { $('upDetails').open = localStorage.getItem('msg.uplinksOpen') === '1'; } catch (e) { /* no storage: folded */ }
+$('upDetails').addEventListener('toggle', () => { try { localStorage.setItem('msg.uplinksOpen', $('upDetails').open ? '1' : '0'); } catch (e) { /* ignore */ } });
+setInterval(render, 5000);   // "seen 12 s ago" and the faded tags follow the clock
 
 render();
 </script>
