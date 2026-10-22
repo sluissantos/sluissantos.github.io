@@ -376,7 +376,7 @@ function fitAll() {
 function rowFor(d) {
   const b = el('button', 'dev' + (state.selected === d.key ? ' on' : ''));
   b.type = 'button';
-  const stale = d.kind !== 'sensor' && d.seen && Date.now() - d.seen > STALE_MS;
+  const stale = d.kind !== 'sensor' && ((d.seen && Date.now() - d.seen > STALE_MS) || (d.alive && d.alive.alive === 'off'));
   if (stale) b.classList.add('stale');
   const dot = el('span', 'dot'); dot.style.background = colorOf(d);
   const t = el('span', 't');
@@ -422,8 +422,9 @@ function drawDetail() {
   const head = el('div', 'detail-head');
   head.append(el('span', 'addr', d.id), el('span', 'chip na', KIND[d.kind].name.replace(/s$/, '')));
   if (d.kind !== 'sensor') {
+    const off = d.alive && d.alive.alive === 'off';
     const stale = !d.seen || Date.now() - d.seen > STALE_MS;
-    head.append(el('span', 'chip ' + (stale ? 'bad' : 'ok'), stale ? 'quiet' : 'heard ' + ago(d.seen)));
+    head.append(el('span', 'chip ' + (off || stale ? 'bad' : 'ok'), off ? 'offline (last will)' : stale ? 'quiet' : 'heard ' + ago(d.seen)));
   }
   c.append(head);
 
@@ -479,7 +480,7 @@ function drawDetail() {
     const dl = el('dl', 'kv');
     kv(dl, 'Last', JSON.stringify(d.alive));
     c.append(dl);
-    c.append(el('p', 'note', 'The last will of the central is also {"alive":"on"}, so this does not tell a disconnection; the time it was last heard does.'));
+    c.append(el('p', 'note', 'The broker publishes {"alive":"off"} when the central drops from it (Wi-Fi only). Firmware before 2026-10-22 sent "on" there too, so for it the time it was last heard is what tells.'));
   }
 
   c.append(el('h3', '', 'Last messages'));
