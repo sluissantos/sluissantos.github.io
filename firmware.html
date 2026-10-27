@@ -1,0 +1,338 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Firmware</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#12161a; --panel:#1a2025; --line:#262e35; --line2:#303a42; --line3:#3a444d;
+    --fg:#e6eaed; --muted:#9aa6b0; --accent:#f5a524; --accent-bg:rgba(245,165,36,.10);
+    --ok-fg:#7be8ab; --bad-fg:#ff9d9d;
+    --sans:'IBM Plex Sans',system-ui,sans-serif; --mono:'IBM Plex Mono',ui-monospace,monospace;
+    color-scheme: dark;
+  }
+  * { box-sizing:border-box; }
+  [hidden] { display:none !important; }
+  body { margin:0; background:var(--bg); color:var(--fg); font-family:var(--sans); font-size:14px; }
+  button, input { font-family:inherit; }
+  button { cursor:pointer; }
+  button:focus-visible, input:focus-visible, a:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  a { color:var(--accent); }
+
+  header { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 16px; padding:16px; border-bottom:1px solid var(--line); }
+  header .title { display:flex; flex-wrap:wrap; align-items:baseline; gap:4px 16px; }
+  header .title small { font:400 12px var(--mono); color:var(--muted); }
+  h1 { margin:0; font-size:22px; font-weight:600; letter-spacing:.01em; }
+  .pages { display:flex; gap:14px; font-size:13px; }
+  .pages a { color:var(--muted); text-decoration:none; }
+  .pages a:hover { color:var(--fg); }
+  .pages a[aria-current] { color:var(--accent); }
+
+  main { max-width:960px; margin:0 auto; padding:16px; display:grid; gap:20px; }
+  @media (min-width:800px) { main { padding:24px; } }
+  section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; display:flex; flex-direction:column; gap:12px; min-width:0; }
+  h2 { margin:0; font-size:15px; font-weight:600; }
+  .headrow { display:flex; flex-wrap:wrap; align-items:baseline; justify-content:space-between; gap:4px 12px; }
+  .headrow small, .note { font-size:12px; color:var(--muted); line-height:1.45; }
+  .note { margin:0; }
+  .mono { font-family:var(--mono); }
+
+  label.field { display:grid; gap:4px; font-size:12px; color:var(--muted); }
+  input[type=text], input[type=password] { height:34px; padding:0 8px; font-size:13px; color:var(--fg); background:var(--bg); border:1px solid var(--line3); border-radius:6px; width:100%; }
+  .row { display:flex; flex-wrap:wrap; align-items:center; gap:8px 14px; }
+  .check { display:inline-flex; align-items:center; gap:6px; font-size:12px; color:var(--muted); min-height:32px; cursor:pointer; }
+  .check input { width:16px; height:16px; margin:0; accent-color:var(--accent); }
+  .ghost { height:32px; padding:0 12px; border:1px solid var(--line3); border-radius:6px; background:transparent; color:var(--fg); font-size:12px; }
+  .ghost:hover:not(:disabled) { background:#2a333b; }
+  .ghost:disabled { opacity:.4; cursor:default; }
+  .primary { height:34px; padding:0 16px; border:0; border-radius:6px; background:var(--accent); color:#12161a; font-weight:600; font-size:13px; }
+  .primary:disabled { opacity:.4; cursor:default; }
+
+  .drop { display:grid; place-items:center; gap:4px; min-height:110px; padding:16px; border:1px dashed var(--line3); border-radius:8px; text-align:center; color:var(--muted); font-size:13px; cursor:pointer; }
+  .drop.over { border-color:var(--accent); background:var(--accent-bg); color:var(--fg); }
+  .drop b { color:var(--fg); font:500 13px var(--mono); overflow-wrap:anywhere; }
+  .status { margin:0; font-size:13px; color:var(--muted); min-height:1.4em; overflow-wrap:anywhere; }
+  .status.ok { color:var(--ok-fg); }
+  .status.err { color:var(--bad-fg); }
+
+  .files { display:flex; flex-direction:column; }
+  .file { display:grid; grid-template-columns:minmax(0,1fr) auto; gap:6px 12px; padding:10px 0; border-bottom:1px solid var(--line); }
+  .file:last-child { border-bottom:0; }
+  .file .name { font:500 13px var(--mono); overflow-wrap:anywhere; }
+  .file .meta { font:400 11px var(--mono); color:var(--muted); }
+  .file .url { grid-column:1 / -1; font:400 12px var(--mono); color:var(--muted); overflow-wrap:anywhere; }
+  .file .acts { display:flex; flex-wrap:wrap; gap:6px; justify-content:flex-end; align-items:start; }
+  .file .hash { grid-column:1 / -1; font:400 11px var(--mono); color:var(--fg); overflow-wrap:anywhere; }
+  .empty { margin:0; font-size:13px; color:var(--muted); }
+  pre { margin:0; padding:10px; background:var(--bg); border:1px solid var(--line2); border-radius:6px; font:400 12px/1.5 var(--mono); color:#d7dde2; white-space:pre-wrap; overflow-wrap:anywhere; }
+</style>
+</head>
+<body>
+<header>
+  <div class="title">
+    <h1>Firmware</h1>
+    <nav class="pages" aria-label="Test pages"><a href="messaging.html">Messaging</a><a href="rtls.html">RTLS</a><a href="devices.html">Devices</a><a href="firmware.html" aria-current="page">Firmware</a></nav>
+    <small>files for OTA over HTTP</small>
+  </div>
+</header>
+
+<main>
+  <section aria-labelledby="h-files">
+    <div class="headrow">
+      <h2 id="h-files">Files</h2>
+      <button class="ghost" id="refresh" type="button">Refresh</button>
+    </div>
+    <div class="files" id="files"><p class="empty">Loading...</p></div>
+    <p class="note">Each file has two addresses. <span class="mono">sluissantos.github.io</span> is the stable one, live about a minute after an upload; <span class="mono">raw.githubusercontent.com</span> answers at once but may serve an older copy for up to 5 min after a replacement. Both are HTTPS only: a plain <span class="mono">http://</span> request gets a redirect to HTTPS.</p>
+  </section>
+
+  <section aria-labelledby="h-up">
+    <h2 id="h-up">Upload</h2>
+    <label class="drop" id="drop" for="file">
+      <span id="dropText">Drop a firmware file here, or click to pick one</span>
+      <input type="file" id="file" hidden>
+    </label>
+    <label class="field">Name in the folder <input type="text" id="name" placeholder="e.g. revp_tagv_1.0.2.bin" autocomplete="off" spellcheck="false"></label>
+    <label class="field">GitHub token (fine-grained, this repository only, Contents: read and write)
+      <input type="password" id="token" autocomplete="off" spellcheck="false">
+    </label>
+    <div class="row">
+      <label class="check"><input type="checkbox" id="remember"> Remember the token in this browser</label>
+      <button class="primary" id="upload" type="button" disabled>Upload</button>
+    </div>
+    <p class="status" id="status" role="status"></p>
+    <p class="note">The file is committed to the <span class="mono">fw/</span> folder of this public repository, so anyone with the address can download it. A file with the same name is replaced.</p>
+  </section>
+
+  <section aria-labelledby="h-use">
+    <h2 id="h-use">From an HTTP client</h2>
+    <pre id="example">curl -L -o firmware.bin https://sluissantos.github.io/fw/&lt;name&gt;</pre>
+  </section>
+</main>
+
+<script>
+const $ = id => document.getElementById(id);
+
+const REPO = { owner: 'sluissantos', name: 'sluissantos.github.io', branch: 'main', dir: 'fw' };
+const API = `https://api.github.com/repos/${REPO.owner}/${REPO.name}/contents/${REPO.dir}`;
+const PAGES_URL = n => `https://${REPO.owner}.github.io/${REPO.dir}/${encodeURIComponent(n)}`;
+const RAW_URL = n => `https://raw.githubusercontent.com/${REPO.owner}/${REPO.name}/${REPO.branch}/${REPO.dir}/${encodeURIComponent(n)}`;
+const TOKEN_KEY = 'fw.token';
+
+let picked = null;   // File chosen for upload
+let listing = [];    // entries of fw/ from the API
+
+function store(fn) { try { return fn(); } catch (e) { return null; } }
+
+function setStatus(text, kind) {
+  $('status').textContent = text;
+  $('status').className = 'status' + (kind ? ' ' + kind : '');
+}
+
+function fmtSize(n) {
+  if (n < 1024) return n + ' B';
+  if (n < 1024 * 1024) return (n / 1024).toFixed(1) + ' KB';
+  return (n / 1024 / 1024).toFixed(2) + ' MB';
+}
+
+// Jekyll, which builds GitHub Pages, skips names starting with "_" or ".",
+// and a path separator would leave the folder.
+function cleanName(n) {
+  return n.trim().replace(/[\\/]/g, '_').replace(/\s+/g, '_').replace(/^[._]+/, '');
+}
+
+function authHeaders() {
+  const h = { 'Accept': 'application/vnd.github+json' };
+  const t = $('token').value.trim();
+  if (t) h.Authorization = 'Bearer ' + t;
+  return h;
+}
+
+async function loadFiles() {
+  $('files').innerHTML = '<p class="empty">Loading...</p>';
+  try {
+    const r = await fetch(`${API}?ref=${REPO.branch}&t=${Date.now()}`, { headers: authHeaders(), cache: 'no-store' });
+    if (r.status === 404) { listing = []; render(); return; }
+    if (!r.ok) throw new Error(`GitHub answered ${r.status}${r.status === 403 ? ' (rate limit without a token: 60 requests per hour)' : ''}`);
+    listing = (await r.json()).filter(e => e.type === 'file').sort((a, b) => a.name.localeCompare(b.name));
+    render();
+  } catch (e) {
+    $('files').innerHTML = '';
+    const p = document.createElement('p');
+    p.className = 'empty';
+    p.textContent = 'Could not list the files: ' + e.message;
+    $('files').appendChild(p);
+  }
+}
+
+function render() {
+  const box = $('files');
+  box.innerHTML = '';
+  if (!listing.length) {
+    box.innerHTML = '<p class="empty">No file yet. Upload one below.</p>';
+    return;
+  }
+  for (const f of listing) {
+    const row = document.createElement('div');
+    row.className = 'file';
+    row.innerHTML = `
+      <div><div class="name"></div><div class="meta"></div></div>
+      <div class="acts">
+        <button class="ghost" data-act="copy" type="button">Copy URL</button>
+        <button class="ghost" data-act="raw" type="button">Copy raw URL</button>
+        <button class="ghost" data-act="hash" type="button">SHA-256</button>
+        <a class="ghost" data-act="get" style="display:inline-flex;align-items:center;text-decoration:none">Download</a>
+        <button class="ghost" data-act="del" type="button">Delete</button>
+      </div>
+      <div class="url"></div>
+      <div class="hash" hidden></div>`;
+    row.querySelector('.name').textContent = f.name;
+    row.querySelector('.meta').textContent = fmtSize(f.size) + ' · ' + f.size + ' bytes';
+    row.querySelector('.url').textContent = PAGES_URL(f.name);
+    row.querySelector('[data-act=get]').href = RAW_URL(f.name);
+    row.querySelector('[data-act=get]').setAttribute('download', f.name);
+    row.querySelector('[data-act=copy]').onclick = e => copy(PAGES_URL(f.name), e.target);
+    row.querySelector('[data-act=raw]').onclick = e => copy(RAW_URL(f.name), e.target);
+    row.querySelector('[data-act=hash]').onclick = e => hashOf(f, row.querySelector('.hash'), e.target);
+    row.querySelector('[data-act=del]').onclick = () => remove(f);
+    row.querySelector('.url').onclick = () => { $('example').textContent = `curl -L -o ${f.name} ${PAGES_URL(f.name)}`; };
+    box.appendChild(row);
+  }
+  $('example').textContent = `curl -L -o ${listing[0].name} ${PAGES_URL(listing[0].name)}`;
+}
+
+async function copy(text, btn) {
+  try {
+    await navigator.clipboard.writeText(text);
+    const old = btn.textContent;
+    btn.textContent = 'Copied';
+    setTimeout(() => { btn.textContent = old; }, 1200);
+  } catch (e) {
+    prompt('Copy the address:', text);
+  }
+}
+
+async function sha256Hex(buf) {
+  const d = await crypto.subtle.digest('SHA-256', buf);
+  return [...new Uint8Array(d)].map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+async function hashOf(f, out, btn) {
+  btn.disabled = true;
+  out.hidden = false;
+  out.textContent = 'Downloading to compute...';
+  try {
+    const r = await fetch(RAW_URL(f.name) + '?t=' + Date.now(), { cache: 'no-store' });
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    out.textContent = 'sha256 ' + await sha256Hex(await r.arrayBuffer());
+  } catch (e) {
+    out.textContent = 'Could not compute: ' + e.message;
+  }
+  btn.disabled = false;
+}
+
+function toBase64(buf) {
+  const bytes = new Uint8Array(buf);
+  let bin = '';
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    bin += String.fromCharCode.apply(null, bytes.subarray(i, i + 0x8000));
+  }
+  return btoa(bin);
+}
+
+function pick(file) {
+  picked = file || null;
+  if (picked) {
+    $('dropText').innerHTML = '';
+    const b = document.createElement('b');
+    b.textContent = picked.name;
+    $('dropText').append(b, document.createTextNode(' · ' + fmtSize(picked.size)));
+    if (!$('name').value.trim()) $('name').value = cleanName(picked.name);
+  } else {
+    $('dropText').textContent = 'Drop a firmware file here, or click to pick one';
+  }
+  refreshUploadBtn();
+}
+
+function refreshUploadBtn() {
+  $('upload').disabled = !(picked && cleanName($('name').value) && $('token').value.trim());
+}
+
+async function upload() {
+  const name = cleanName($('name').value);
+  $('name').value = name;
+  $('upload').disabled = true;
+  try {
+    if (picked.size > 100 * 1024 * 1024) throw new Error('GitHub takes files up to 100 MB');
+    setStatus('Reading the file...');
+    const buf = await picked.arrayBuffer();
+    const hash = await sha256Hex(buf);
+    const old = listing.find(e => e.name === name);
+    setStatus(`Sending ${fmtSize(buf.byteLength)}...`);
+    const body = {
+      message: `firmware: ${old ? 'replace' : 'add'} ${name} (sha256 ${hash})`,
+      content: toBase64(buf),
+      branch: REPO.branch,
+    };
+    if (old) body.sha = old.sha;
+    const r = await fetch(`${API}/${encodeURIComponent(name)}`, {
+      method: 'PUT', headers: authHeaders(), body: JSON.stringify(body),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(`GitHub answered ${r.status}: ${j.message || r.statusText}`);
+    }
+    if ($('remember').checked) store(() => localStorage.setItem(TOKEN_KEY, $('token').value.trim()));
+    setStatus(`Uploaded ${name} (sha256 ${hash}). The github.io address is live in about a minute.`, 'ok');
+    pick(null);
+    $('file').value = '';
+    $('name').value = '';
+    await loadFiles();
+  } catch (e) {
+    setStatus('Upload failed: ' + e.message, 'err');
+  }
+  refreshUploadBtn();
+}
+
+async function remove(f) {
+  if (!$('token').value.trim()) { setStatus('Deleting needs the token, in the Upload box.', 'err'); return; }
+  if (!confirm(`Delete ${f.name}? Devices that still point to it will get 404.`)) return;
+  try {
+    const r = await fetch(`${API}/${encodeURIComponent(f.name)}`, {
+      method: 'DELETE', headers: authHeaders(),
+      body: JSON.stringify({ message: `firmware: delete ${f.name}`, sha: f.sha, branch: REPO.branch }),
+    });
+    if (!r.ok) {
+      const j = await r.json().catch(() => ({}));
+      throw new Error(`GitHub answered ${r.status}: ${j.message || r.statusText}`);
+    }
+    setStatus(`Deleted ${f.name}.`, 'ok');
+    await loadFiles();
+  } catch (e) {
+    setStatus('Delete failed: ' + e.message, 'err');
+  }
+}
+
+$('file').addEventListener('change', e => pick(e.target.files[0]));
+$('name').addEventListener('input', refreshUploadBtn);
+$('token').addEventListener('input', refreshUploadBtn);
+$('upload').addEventListener('click', upload);
+$('refresh').addEventListener('click', loadFiles);
+$('remember').addEventListener('change', e => {
+  if (!e.target.checked) store(() => localStorage.removeItem(TOKEN_KEY));
+});
+const drop = $('drop');
+['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+drop.addEventListener('drop', e => { if (e.dataTransfer.files.length) pick(e.dataTransfer.files[0]); });
+
+const saved = store(() => localStorage.getItem(TOKEN_KEY));
+if (saved) { $('token').value = saved; $('remember').checked = true; }
+loadFiles();
+</script>
+</body>
+</html>
