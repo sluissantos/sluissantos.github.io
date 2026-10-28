@@ -141,7 +141,7 @@
       </select>
     </div>
     <div class="scroll" id="devList"></div>
-    <p class="empty" id="noDevices">Nothing heard yet. Aura centrals show up with their GNSS (<span class="mono">central/+/uplink/gps</span>) or modem info, Revolog sensors from the RTLS lists, and the vehicle tags when they publish by themselves.</p>
+    <p class="empty" id="noDevices">Nothing heard yet. Only positions: the GNSS of the Aura centrals (<span class="mono">aura/central/+/uplink/gnss</span>), of the Revolog sensors (<span class="mono">revolog/sensor/+/uplink/gnss</span>, or their registered position in the RTLS lists) and of the vehicle tags when they publish by themselves (<span class="mono">revolog/tagv/+/uplink/gnss</span>).</p>
   </section>
 
   <section id="mapSec" aria-labelledby="h-map">
@@ -185,11 +185,11 @@ const CFG = {
 // A test viewer of where the devices of a site are. It reads both platforms; it is no service.
 const SITE = qs.get('site') || 'lpx/demo/bh';
 const TOPIC = {
-  centralGps:  SITE + '/central/+/uplink/gps',        // Aura central with the modem: GNSS of the SIM7080G
-  centralInfo: SITE + '/central/+/uplink/m2m-info',   // Aura central: modem state
-  centralLwt:  SITE + '/central/+/uplink/lwt/status', // Aura central: alive (retained)
-  tagvGps:     SITE + '/tagv/+/uplink/gps',           // Revolog vehicle tag through its own modem (proposal)
-  rtlsConfig:  SITE + '/rtls/config',                 // Revolog sensors, registered positions (retained)
+  // Positions only: the GNSS of each device's own modem, and the registered positions of the sensors
+  centralGnss: SITE + '/aura/central/+/uplink/gnss',     // Aura central (anchor) with the modem; <ID> = Nora address
+  sensorGnss:  SITE + '/revolog/sensor/+/uplink/gnss',   // Revolog sensor (anchor) with the modem
+  tagvGnss:    SITE + '/revolog/tagv/+/uplink/gnss',     // Revolog vehicle tag through its own modem
+  rtlsConfig:  SITE + '/rtls/config',                    // Revolog sensors, registered positions (retained)
 };
 const clientId = 'web-dev-' + Math.random().toString(16).slice(2, 10);
 const TRACK_MAX = 5000;          // points kept per device
@@ -209,6 +209,13 @@ const fmtTime = ts => { const d = new Date(ts); return pad(d.getHours()) + ':' +
 const has = v => v !== undefined && v !== null && v !== '';
 const num = v => (has(v) && Number.isFinite(Number(v))) ? Number(v) : null;
 const upper = v => String(v || '').trim().toUpperCase();
+// Device time: RFC 3339 UTC ("2026-10-28T16:44:13Z"); firmware before it sent "2026-10-28 16:44:13", also UTC
+function devTime(v) {
+  if (!has(v)) return '';
+  const s = String(v).trim();
+  const t = Date.parse(/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(s) ? s.replace(' ', 'T') + 'Z' : s);
+  return Number.isFinite(t) ? new Date(t).toISOString().replace('.000Z', 'Z') : s;
+}
 const esc = v => String(v).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 function el(tag, cls, text) {
   const e = document.createElement(tag);
@@ -244,7 +251,7 @@ function toWGS84(o, x, y) {
 }
 
 // ---- State ----
-// key "central:a016", "tagv:1A2B", "sensor:A001"
+// key "central:A016", "tagv:1A2B", "sensor:A001"
 const state = { online: false, devices: {}, selected: '' };
 function device(kind, id) {
   const key = kind + ':' + id;
@@ -256,10 +263,10 @@ function remember(d, topic, text) {
   if (d.msgs.length > MSG_MAX) d.msgs.length = MSG_MAX;
 }
 
-function onGps(d, o) {
+function onGnss(d, o) {
   const lat = num(o.lat_m), lon = num(o.lon_m);
   if (lat === null || lon === null || (lat === 0 && lon === 0)) return;
-  const fix = { ts: Date.now(), dts: String(o.ts || ''), lat, lon, lat_i: num(o.lat_i), lon_i: num(o.lon_i),
+  const fix = { ts: Date.now(), dts: devTime(o.ts), lat, lon, lat_i: num(o.lat_i), lon_i: num(o.lon_i),
     vel_m: num(o.vel_m), vel_i: num(o.vel_i), acc: Math.max(0, Math.min(3, num(o.acc) ?? 0)),
     hpa: num(o.hpa), nsat: num(o.nsat), n: num(o.n) };
   d.fix = fix;
@@ -274,7 +281,8 @@ function onGps(d, o) {
 }
 
 function onRtlsConfig(o) {
-  for (const k of Object.keys(state.devices)) if (state.devices[k].kind === 'sensor') delete state.devices[k];
+  // only the registry is replaced: the fixes of a sensor's own GNSS stay
+  for (const k of Object.keys(state.devices)) if (state.devices[k].kind === 'sensor') delete state.devices[k].reg;
   const areas = Array.isArray(o.areas) ? o.areas : [], sensors = Array.isArray(o.sensors) ? o.sensors : [];
   for (const s of sensors) {
     const id = upper(s.id);
@@ -288,7 +296,13 @@ function onRtlsConfig(o) {
     d.reg = { role: s.role || '', area: s.area || '', name: s.name || '', source: s.source || '', z: num(s.z_m), lat, lon,
       inMetres: num(s.x) !== null, areaName: area ? (area.name || '') : '' };
   }
+  for (const k of Object.keys(state.devices)) {
+    const d = state.devices[k];
+    if (d.kind === 'sensor' && !d.reg && !d.fix) delete state.devices[k];
+  }
 }
+// a registered sensor stays where it was surveyed; its own GNSS shows in the details
+const registered = d => d.kind === 'sensor' && d.reg && d.reg.lat !== null && d.reg.lon !== null;
 
 // ---- Map ----
 let map, layers = {}, fitted = false;
@@ -314,11 +328,11 @@ function iconFor(d, color, on) {
   return L.divIcon({ className: '', html, iconSize: null, iconAnchor: [9, 9] });
 }
 function positionOf(d) {
-  if (d.kind === 'sensor') return (d.reg && d.reg.lat !== null && d.reg.lon !== null) ? [d.reg.lat, d.reg.lon] : null;
+  if (registered(d)) return [d.reg.lat, d.reg.lon];
   return d.fix ? [d.fix.lat, d.fix.lon] : null;
 }
 function colorOf(d) {
-  if (d.kind === 'sensor') return '#4cc9f0';
+  if (d.kind === 'sensor' && (registered(d) || !d.fix)) return '#4cc9f0';
   return d.fix ? QCOLOR[d.fix.acc] : QCOLOR[0];
 }
 function drawMap() {
@@ -344,10 +358,10 @@ function drawMap() {
       if (L0.sig !== sig) L0.marker.setIcon(iconFor(d, color, on));
     }
     L0.sig = sig;
-    L0.marker.setOpacity(d.seen && now - d.seen > STALE_MS && d.kind !== 'sensor' ? 0.5 : 1);
+    L0.marker.setOpacity(d.seen && now - d.seen > STALE_MS && !registered(d) ? 0.5 : 1);
     // error circle: the receiver's own estimate (HPA), in metres
     const r = d.fix && d.fix.hpa !== null && d.fix.hpa < 1000 ? d.fix.hpa : 0;
-    if (showCircles && r > 0 && d.kind !== 'sensor') {
+    if (showCircles && r > 0 && !registered(d)) {
       if (!L0.circle) L0.circle = L.circle(p, { radius: r, color, weight: 1, fillOpacity: 0.08, interactive: false }).addTo(map);
       else { L0.circle.setLatLng(p); L0.circle.setRadius(r); L0.circle.setStyle({ color }); }
     } else if (L0.circle) { L0.circle.remove(); L0.circle = null; }
@@ -376,20 +390,20 @@ function fitAll() {
 function rowFor(d) {
   const b = el('button', 'dev' + (state.selected === d.key ? ' on' : ''));
   b.type = 'button';
-  const stale = d.kind !== 'sensor' && ((d.seen && Date.now() - d.seen > STALE_MS) || (d.alive && d.alive.alive === 'off'));
+  const stale = !registered(d) && d.seen && Date.now() - d.seen > STALE_MS;
   if (stale) b.classList.add('stale');
   const dot = el('span', 'dot'); dot.style.background = colorOf(d);
   const t = el('span', 't');
   t.append(el('b', '', d.id));
   let sub;
-  if (d.kind === 'sensor') {
-    const r = d.reg || {};
+  if (d.kind === 'sensor' && d.reg) {
+    const r = d.reg;
     sub = [r.area || 'no area', r.role || '', r.lat === null ? 'no lat/lon (area without origin)' : 'registered'].filter(Boolean).join(' · ');
   } else if (d.fix) {
     sub = QUALITY[d.fix.acc] + (d.fix.hpa !== null ? ' · ±' + d.fix.hpa + ' m' : '') + (d.fix.nsat !== null ? ' · ' + d.fix.nsat + ' sat' : '');
-  } else sub = d.info ? 'modem up, no fix yet' : 'no fix yet';
+  } else sub = 'no fix yet';
   t.append(el('small', '', sub));
-  const seen = el('span', 'seen', d.kind === 'sensor' ? '' : ago(d.seen));
+  const seen = el('span', 'seen', ago(d.seen));
   b.append(dot, t, seen);
   b.onclick = () => { state.selected = d.key; render(); const p = positionOf(d); if (p && map) map.panTo(p); };
   return b;
@@ -421,15 +435,15 @@ function drawDetail() {
   $('detailNote').textContent = KIND[d.kind].platform;
   const head = el('div', 'detail-head');
   head.append(el('span', 'addr', d.id), el('span', 'chip na', KIND[d.kind].name.replace(/s$/, '')));
-  if (d.kind !== 'sensor') {
-    const off = d.alive && d.alive.alive === 'off';
-    const stale = !d.seen || Date.now() - d.seen > STALE_MS;
-    head.append(el('span', 'chip ' + (off || stale ? 'bad' : 'ok'), off ? 'offline (last will)' : stale ? 'quiet' : 'heard ' + ago(d.seen)));
+  if (d.seen) {
+    const stale = Date.now() - d.seen > STALE_MS;
+    head.append(el('span', 'chip ' + (stale ? 'bad' : 'ok'), stale ? 'quiet' : 'heard ' + ago(d.seen)));
   }
   c.append(head);
 
-  if (d.kind === 'sensor') {
-    const r = d.reg || {};
+  if (d.kind === 'sensor' && d.reg) {
+    const r = d.reg;
+    c.append(el('h3', '', 'Registered'));
     const dl = el('dl', 'kv');
     kv(dl, 'Area', r.area + (r.areaName ? ' (' + r.areaName + ')' : ''));
     kv(dl, 'Role', r.role);
@@ -439,8 +453,8 @@ function drawDetail() {
     kv(dl, 'Source', r.source);
     kv(dl, 'Name', r.name);
     c.append(dl);
-    c.append(el('p', 'note', 'From the lists of the RTLS engine (rtls/config). A sensor with its own GNSS would show its fixes here too.'));
-    return;
+    c.append(el('p', 'note', 'From the lists of the RTLS engine (rtls/config). On the map this position wins over the GNSS of the sensor\'s own modem, shown below when it publishes one.'));
+    if (!d.fix) return;
   }
 
   if (d.fix) {
@@ -463,25 +477,6 @@ function drawDetail() {
     }
     c.append(dl);
   } else c.append(el('p', 'empty', 'No GNSS fix received yet.'));
-
-  if (d.info) {
-    c.append(el('h3', '', 'Modem'));
-    const i = d.info, dl = el('dl', 'kv');
-    const rssi = num(i.rssi);
-    kv(dl, 'Signal', rssi === null ? null : (rssi === 99 ? 'unknown (CSQ 99)' : 'CSQ ' + rssi + ' (about ' + (-113 + 2 * rssi) + ' dBm)'));
-    kv(dl, 'Access', i.act);
-    kv(dl, 'IMEI', i.IMEI);
-    kv(dl, 'IP', i.ip);
-    kv(dl, 'Device time', i.ts);
-    c.append(dl);
-  }
-  if (d.alive) {
-    c.append(el('h3', '', 'Alive'));
-    const dl = el('dl', 'kv');
-    kv(dl, 'Last', JSON.stringify(d.alive));
-    c.append(dl);
-    c.append(el('p', 'note', 'The broker publishes {"alive":"off"} when the central drops from it (Wi-Fi only). Firmware before 2026-10-22 sent "on" there too, so for it the time it was last heard is what tells.'));
-  }
 
   c.append(el('h3', '', 'Last messages'));
   for (const m of d.msgs) {
@@ -526,16 +521,17 @@ const client = mqtt.connect(CFG.url, opts);
 client.on('connect', () => {
   state.online = true;
   setConn('Connected to broker', 'ok');
-  client.subscribe([TOPIC.centralGps, TOPIC.centralInfo, TOPIC.centralLwt, TOPIC.tagvGps], { qos: 0 });
+  client.subscribe([TOPIC.centralGnss, TOPIC.sensorGnss, TOPIC.tagvGnss], { qos: 0 });
   client.subscribe(TOPIC.rtlsConfig, { qos: 1 });
 });
 client.on('reconnect', () => { state.online = false; setConn('Reconnecting to broker...', 'err'); });
 client.on('offline', () => { state.online = false; setConn('No connection to broker', 'err'); });
 client.on('error', err => { setConn('Error: ' + err.message, 'err'); });
 
-// <site>/central/<id>/uplink/<what> and <site>/tagv/<TAG>/uplink/gps
-const CENTRAL = new RegExp('^' + SITE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/central/([^/]+)/uplink/(gps|m2m-info|lwt/status)$');
-const TAGV = new RegExp('^' + SITE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '/tagv/([^/]+)/uplink/gps$');
+// <site>/<platform>/<type>/<ID>/uplink/gnss: aura/central, revolog/sensor or revolog/tagv
+const SITE_RE = SITE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const GNSS = new RegExp('^' + SITE_RE + '/(aura/central|revolog/sensor|revolog/tagv)/([0-9A-Fa-f]{4})/uplink/gnss$');
+const KIND_OF = { 'aura/central': 'central', 'revolog/sensor': 'sensor', 'revolog/tagv': 'tagv' };
 client.on('message', (topic, payload) => {
   const text = payload.toString();
   let o; try { o = JSON.parse(text); } catch (e) { return; }
@@ -543,17 +539,10 @@ client.on('message', (topic, payload) => {
   let m;
   if (topic === TOPIC.rtlsConfig) {
     onRtlsConfig(o);
-  } else if ((m = CENTRAL.exec(topic))) {
-    if (m[1] === 'broad') return;
-    const d = device('central', m[1].toLowerCase());
+  } else if ((m = GNSS.exec(topic))) {
+    const d = device(KIND_OF[m[1]], upper(m[2]));
     remember(d, topic, text);
-    if (m[2] === 'gps') onGps(d, o);
-    else if (m[2] === 'm2m-info') d.info = o;
-    else d.alive = o;
-  } else if ((m = TAGV.exec(topic))) {
-    const d = device('tagv', upper(m[1]));
-    remember(d, topic, text);
-    onGps(d, o);
+    onGnss(d, o);
   } else return;
   render();
 });
