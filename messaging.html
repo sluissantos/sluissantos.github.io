@@ -193,6 +193,10 @@
   .opt .nx b { font:400 12px var(--mono); color:var(--fg); }
   .opt.tag { gap:8px; }
   .pair { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .textfoot { display:flex; align-items:baseline; justify-content:space-between; gap:4px 12px; font-size:12px; color:var(--muted); line-height:1.4; }
+  .textfoot .count { flex-shrink:0; font-family:var(--mono); }
+  .textfoot .count.over { color:var(--bad-fg); }
+  .textfoot b { font:500 12px var(--mono); color:var(--fg); }
   .empty { margin:8px 0 0; font-size:13px; color:var(--muted); line-height:1.4; }
   .tagpick { display:flex; flex-direction:column; gap:4px; max-height:240px; }
   .send-wrap { display:flex; flex-direction:column; gap:8px; }
@@ -256,6 +260,13 @@
         <input type="radio" name="msg" id="customRadio" data-fk="msgc">
         <textarea id="customText" rows="2" placeholder="Write your own message" aria-label="Custom message text"></textarea>
       </label>
+    </fieldset>
+
+    <fieldset data-for="0xF0 0xF1 0xF2">
+      <legend id="textLegend">Text</legend>
+      <select class="filter cmd" id="textEx" aria-label="Examples"></select>
+      <input class="inp" type="text" id="textIn" maxlength="20" placeholder="Or write your own" autocomplete="off" spellcheck="false" aria-label="Text to send" data-fk="textIn">
+      <div class="textfoot"><span id="textNote"></span><span class="count" id="textCount"></span></div>
     </fieldset>
 
     <label class="field" data-for="0xE6">
@@ -414,6 +425,9 @@ const clientId = 'web-' + Math.random().toString(16).slice(2, 10);
 // The commands the software may ask for. confirm: a second click in the page sends it.
 const CMDS = [
   { op: '0xE4', name: 'Pager message' },
+  { op: '0xF0', name: 'Stage text' },
+  { op: '0xF1', name: 'Status text' },
+  { op: '0xF2', name: 'Vehicle plate' },
   { op: '0xE6', name: 'SOS required' },
   { op: '0xE8', name: 'Time sync' },
   { op: '0xED', name: 'Vibration' },
@@ -422,6 +436,29 @@ const CMDS = [
   { op: '0xFF', name: 'Reset', confirm: 'reset' },
 ];
 const cmdOf = op => CMDS.find(c => c.op === op);
+
+// Screen texts: 1 to 20 bytes each, in its own slot. The tag's fonts have no accented glyphs, so the
+// accents go before sending (NFD, then the combining marks out: "Inspeção" -> "Inspecao").
+const TEXT_MAX = 20;
+const TEXT_CMDS = {
+  '0xF0': { legend: 'Stage', note: 'Shown on the tag screen under "ETAPA".', placeholder: 'Or write your own',
+    examples: ['Inspecao/seguranca', 'Carga/descarga', 'Pesagem', 'Espera'] },
+  '0xF1': { legend: 'Status', note: 'Shown on the tag screen under "STATUS".', placeholder: 'Or write your own',
+    examples: ['Revisando', 'OK inspecao entrada', 'Analise documental', 'Autorizado', 'Receb. boleto', 'Entrada no site',
+      'Peso inicial', 'In doca', 'OK in doca', 'Em revisao OP', 'Revisando OP', 'Out doca', 'OK out doca', 'Lib. pesagem',
+      'Validacao volume', 'OK validacao', 'Problemas OP', 'Peso final', 'Report prod.', 'OK qualidade'] },
+  '0xF2': { legend: 'Vehicle plate', note: 'Shown on the home screen as a QR code, the plate written under it. Sent in upper case, without spaces.',
+    placeholder: 'Or write the plate, e.g. ABC1D23', plate: true, examples: ['ABC1D23', 'RVL2A26', 'QQX9F87'] },
+};
+const noAccents = s => s.normalize('NFD').replace(/\p{M}/gu, '');
+const utf8Len = s => new TextEncoder().encode(s).length;
+// What goes in message_content for a screen text.
+function screenText(op, raw) {
+  const s = noAccents(String(raw || ''));
+  return TEXT_CMDS[op].plate ? s.toUpperCase().replace(/\s+/g, '') : s.trim();
+}
+// An anchor with the tag's own address is the tag's own modem (the vehicle tag, revolog/tagv).
+const viaName = (a, addr) => a === addr ? 'modem' : a;
 
 const SOS_SOURCE = { user: 'SOS button', fall: 'fall detected', server: 'required by the server' };
 const SOS_WORDS = {
@@ -436,6 +473,7 @@ const RANK = { queued: 1, sent: 2, delivered: 3 };   // every other state is fin
 
 const state = {
   cmd: '0xE4', msgIdx: 0, viber: 1, sendAll: true, selected: {}, seq: 1, popup: null, online: false, armed: null,
+  texts: { '0xF0': TEXT_CMDS['0xF0'].examples[0], '0xF1': TEXT_CMDS['0xF1'].examples[0], '0xF2': '' },   // the text typed per command
   tags: [], downlinks: [], uplinks: [], filter: '',   // filter: one tag address, or '' for all
   episodes: [], sosLog: [], sosSeen: new Set(), sosEnded: new Set(),   // open SOS episodes, every SOS event, episodes seen and ended
   upTotal: 0, upSos: 0, upByTag: {}, since: Date.now(),
@@ -492,12 +530,17 @@ function buildArgs() {
     case '0xE6': return { sos: { subtype: 'required', text: $('sosText').value.trim() } };
     case '0xEB': return { new_addr: upper($('newAddr').value.trim()) };
     case '0xED': return { viber: state.viber };
+    case '0xF0': case '0xF1': case '0xF2': return { message_content: screenText(state.cmd, state.texts[state.cmd]) };
     default: return {};
   }
 }
 // Why the request cannot be sent yet, or ''.
 function argsProblem(args, list) {
   if (state.cmd === '0xE4' && !args.message_content) return 'Write the message first.';
+  if (TEXT_CMDS[state.cmd]) {
+    if (!args.message_content) return 'Write the text first.';
+    if (utf8Len(args.message_content) > TEXT_MAX) return 'Text: at most ' + TEXT_MAX + ' bytes.';
+  }
   if (state.cmd === '0xEB') {
     if (!isAddr(args.new_addr)) return 'New address: 4 hex digits.';
     if (list.length !== 1) return 'Set address: select exactly one tag, two tags cannot share an address.';
@@ -512,6 +555,9 @@ function summary(op, args) {
       return 'SOS required' + (args.sos && args.sos.text ? ': "' + args.sos.text + '"' : '');
     case '0xE8': return 'Time sync';
     case '0xED': return 'Vibration ' + (args.viber ? 'on' : 'off');
+    case '0xF0': return 'Stage: ' + (args.message_content || '');
+    case '0xF1': return 'Status: ' + (args.message_content || '');
+    case '0xF2': return 'Plate: ' + (args.message_content || '');
     case '0xEB': return 'Set address to ' + args.new_addr;
     case '0xEC': return 'Erase flash';
     case '0xFF': return 'Reset';
@@ -534,7 +580,24 @@ function render() {
   // Command and its inputs
   if (!$('cmd').options.length) $('cmd').replaceChildren(...CMDS.map(c => new Option(c.name + ' · ' + c.op, c.op)));
   $('cmd').value = state.cmd;
-  document.querySelectorAll('[data-for]').forEach(e => { e.hidden = e.dataset.for !== state.cmd; });
+  document.querySelectorAll('[data-for]').forEach(e => { e.hidden = !e.dataset.for.split(' ').includes(state.cmd); });
+
+  const tc = TEXT_CMDS[state.cmd];
+  if (tc) {
+    const raw = state.texts[state.cmd] || '';
+    fill('textEx', state.cmd, sel => sel.append(new Option('Examples', ''), ...tc.examples.map(x => new Option(x, x))));
+    $('textEx').value = tc.examples.includes(raw) ? raw : '';
+    if ($('textIn').value !== raw) $('textIn').value = raw;
+    $('textIn').placeholder = tc.placeholder;
+    $('textIn').className = 'inp' + (tc.plate ? ' mono' : '');
+    $('textLegend').textContent = tc.legend;
+    const sent = screenText(state.cmd, raw), len = utf8Len(sent);
+    const note = $('textNote');
+    note.replaceChildren(tc.note);
+    if (sent && sent !== raw.trim()) { note.append(' Sent as '); note.append(el('b', '', sent)); note.append('.'); }
+    $('textCount').textContent = len + '/' + TEXT_MAX;
+    $('textCount').className = 'count' + (len > TEXT_MAX ? ' over' : '');
+  }
 
   fill('msgOptions', String(state.msgIdx), mo => MSGS.forEach((label, i) => {
     const l = el('label', 'opt' + (state.msgIdx === i ? ' on' : ''));
@@ -563,7 +626,7 @@ function render() {
     if (t.charging) { const p = el('span', 'pill base', 'Base'); p.title = 'On the charging base: pager messages are refused'; l.append(p); }
     if (t.sos !== 'none') { const p = el('span', 'pill sos', 'SOS'); p.title = 'In SOS: everything but SOS commands is refused'; l.append(p); }
     const nx = el('span', 'nx');
-    if (t.anchors.length) { nx.append('via '); nx.append(el('b', '', t.anchors.join(', '))); } else nx.append('no anchor');
+    if (t.anchors.length) { nx.append('via '); nx.append(el('b', '', t.anchors.map(a => viaName(a, t.addr)).join(', '))); } else nx.append('no anchor');
     l.append(nx);
     tr.append(l);
   }));
@@ -614,7 +677,7 @@ function render() {
     const st = el('small');
     const cls = { delivered: 'ok', viewed: 'ok', failed: 'bad', expired: 'bad', cancelled: 'bad' }[d.state] || '';
     st.append(el('span', cls, d.state.replace('_', ' ')));
-    const via = d.state === 'sent' ? d.sentTo.join(', ') : d.anchor;
+    const via = (d.state === 'sent' ? d.sentTo : d.anchor ? [d.anchor] : []).map(a => viaName(a, d.addr)).join(', ');
     if (via) st.append(' · via ' + via);
     if (d.reason) st.append(' · ' + d.reason);
     msg.append(st);
@@ -672,7 +735,11 @@ function render() {
     const bar = el('span', 'bar'); const fillBar = document.createElement('i'); fillBar.style.width = u.bat + '%'; bar.append(fillBar);
     bat.append(bar, el('span', '', u.bat + '%'));
     const an = el('span', 'cell-mono anchors');
-    (u.anchors.length ? u.anchors : ['-']).forEach(a => an.append(el('span', '', a)));
+    (u.anchors.length ? u.anchors : ['-']).forEach(a => {
+      const sp = el('span', '', viaName(a, u.addr));
+      if (a === u.addr) sp.title = 'The tag\'s own modem (' + a + ')';
+      an.append(sp);
+    });
     row.append(stamp(u.ts), el('span', 'cell-mono', u.addr), an, mv, so, bat);
     ul.append(row);
   }));
@@ -703,7 +770,7 @@ function render() {
     $('popWhen').textContent = 'Every SOS event since ' + fmtDate(state.since) + ' ' + fmtTime(state.since) + ', newest first';
     $('popJson').textContent = state.sosLog.length ? state.sosLog.map(s =>
       fmtDate(s.ts) + ' ' + fmtTime(s.ts) + '  ' + s.addr + '  #' + String(s.session).padEnd(4) + (s.source || '-').padEnd(7)
-      + s.state.padEnd(23) + (s.anchor || '')).join('\n') : 'No SOS event since the page opened.';
+      + s.state.padEnd(23) + (s.anchor ? (s.anchor === s.addr ? 'own modem' : s.anchor) : '')).join('\n') : 'No SOS event since the page opened.';
   }
 
   if (focusKey) { const f = document.querySelector('[data-fk="' + focusKey + '"]'); if (f && f !== document.activeElement) f.focus(); }
@@ -758,7 +825,11 @@ function tagCard(t) {
     info.append(dd);
   };
   const anc = el('span');
-  if (t.anchors.length) t.anchors.forEach(a => anc.append(el('span', 'anc', a))); else anc.textContent = 'none in the last minute';
+  if (t.anchors.length) t.anchors.forEach(a => {
+    const sp = el('span', 'anc', a === t.addr ? 'own modem' : a);
+    if (a === t.addr) sp.title = 'The vehicle tag reports and takes its commands over its own modem (' + a + ')';
+    anc.append(sp);
+  }); else anc.textContent = 'none in the last minute';
   row('Heard by', anc);
   if (o.answer && o.answer.state && o.answer.state !== 'none') row('Last message', '#' + o.answer.message_id + ' · ' + (ANSWER_WORDS[o.answer.state] || o.answer.state));
   if (hasGnss(o.gnss)) {
@@ -787,7 +858,7 @@ function sosStrip(e) {
   meta.append(item('GNSS', hasGnss(e.gnss) ? mapLink(e.gnss, 'mono') : 'no fix'));
   meta.append(item('Since', fmtTime(e.since)));
   meta.append(item('Updated', fmtTime(e.at)));
-  if (e.anchor) meta.append(item('Via', e.anchor));
+  if (e.anchor) meta.append(item('Via', e.anchor === e.addr ? 'own modem' : e.anchor));
   meta.append(item('Session', String(e.session)));
   if (e.fromTag) meta.append(el('span', '', '(from the tag state)'));
   s.append(meta);
@@ -820,6 +891,8 @@ $('vibOnRadio').onchange = () => { state.viber = 1; render(); };
 $('vibOffRadio').onchange = () => { state.viber = 0; render(); };
 $('cmd').onchange = e => { state.cmd = e.target.value; disarm(); render(); };
 for (const id of ['sosText', 'newAddr', 'ttl', 'attempts']) $(id).addEventListener('input', () => render());
+$('textIn').addEventListener('input', e => { state.texts[state.cmd] = e.target.value; render(); });
+$('textEx').onchange = e => { if (e.target.value) { state.texts[state.cmd] = e.target.value; render(); } };
 
 for (const id of ['filterDown', 'filterUp']) {
   $(id).onchange = e => { state.filter = e.target.value; render(); };
