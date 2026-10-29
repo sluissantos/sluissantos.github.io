@@ -122,8 +122,7 @@
   <div class="right">
     <span class="btns">
       <button class="ghost" id="fitAll" type="button">Fit all</button>
-      <button class="ghost" id="clearTracks" type="button">Clear tracks</button>
-      <button class="ghost" id="exportCsv" type="button" title="Track of the selected device since this page opened">Track CSV</button>
+      <button class="ghost" id="exportCsv" type="button" title="Fixes of the selected device since this page opened">Fixes CSV</button>
     </span>
     <span class="conn" id="conn" role="status"><i></i><span id="connText">Connecting to broker...</span></span>
   </div>
@@ -150,12 +149,6 @@
       <small id="mapNote"></small>
     </div>
     <div class="toggles">
-      <label><input type="checkbox" id="tTracks" checked> Tracks</label>
-      <select class="filter" id="trailLen" aria-label="Track length on the map">
-        <option value="600">last 10 min</option>
-        <option value="3600" selected>last 1 h</option>
-        <option value="0">since the page opened</option>
-      </select>
       <label><input type="checkbox" id="tCircles" checked> Error circles</label>
       <label><input type="checkbox" id="tSensors" checked> Sensors</label>
     </div>
@@ -337,8 +330,8 @@ function colorOf(d) {
 }
 function drawMap() {
   ensureMap();
-  const showTracks = $('tTracks').checked, showCircles = $('tCircles').checked, showSensors = $('tSensors').checked;
-  const span = Number($('trailLen').value) * 1000, now = Date.now();
+  const showCircles = $('tCircles').checked, showSensors = $('tSensors').checked;
+  const now = Date.now();
   const kind = $('kindFilter').value;
   const keep = new Set();
   for (const d of Object.values(state.devices)) {
@@ -365,11 +358,6 @@ function drawMap() {
       if (!L0.circle) L0.circle = L.circle(p, { radius: r, color, weight: 1, fillOpacity: 0.08, interactive: false }).addTo(map);
       else { L0.circle.setLatLng(p); L0.circle.setRadius(r); L0.circle.setStyle({ color }); }
     } else if (L0.circle) { L0.circle.remove(); L0.circle = null; }
-    const pts = d.track.filter(f => !span || now - f.ts <= span).map(f => [f.lat, f.lon]);
-    if (showTracks && pts.length > 1) {
-      if (!L0.track) L0.track = L.polyline(pts, { color, weight: on ? 3 : 2, opacity: 0.8, interactive: false }).addTo(map);
-      else { L0.track.setLatLngs(pts); L0.track.setStyle({ color, weight: on ? 3 : 2 }); }
-    } else if (L0.track) { L0.track.remove(); L0.track = null; }
   }
   for (const k of Object.keys(layers)) {
     if (keep.has(k)) continue;
@@ -495,7 +483,6 @@ function render() {
 
 // ---- Buttons ----
 $('fitAll').onclick = fitAll;
-$('clearTracks').onclick = () => { for (const d of Object.values(state.devices)) d.track = d.fix ? [d.fix] : []; render(); };
 $('exportCsv').onclick = () => {
   const d = state.devices[state.selected];
   if (!d || !d.track.length) return;
@@ -503,10 +490,10 @@ $('exportCsv').onclick = () => {
   const rows = d.track.map(f => [new Date(f.ts).toISOString(), '"' + f.dts + '"', f.lat, f.lon, f.lat_i ?? '', f.lon_i ?? '', f.acc,
     f.hpa ?? '', f.nsat ?? '', f.n ?? '', f.vel_m ?? '', f.vel_i ?? ''].join(','));
   const blob = new Blob([head + '\n' + rows.join('\n') + '\n'], { type: 'text/csv' });
-  const a = el('a'); a.href = URL.createObjectURL(blob); a.download = d.kind + '_' + d.id + '_track.csv';
+  const a = el('a'); a.href = URL.createObjectURL(blob); a.download = d.kind + '_' + d.id + '_fixes.csv';
   document.body.append(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
 };
-for (const id of ['tTracks', 'tCircles', 'tSensors', 'trailLen']) $(id).onchange = render;
+for (const id of ['tCircles', 'tSensors']) $(id).onchange = render;
 $('kindFilter').onchange = () => { fitted = false; render(); };
 setInterval(() => { drawList(); if (state.selected) drawDetail(); }, 5000);   // the "ago" texts
 
