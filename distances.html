@@ -113,7 +113,7 @@
       <p class="note">The tag whose distance counts as the true one, usually by UWB. The table gives the error of every other series against it.</p>
       <div class="row">
         <input class="num" id="refTag" maxlength="4" placeholder="C096" aria-label="Reference tag, 4 hex digits" autocomplete="off" spellcheck="false">
-        <select class="num" id="refGroup" aria-label="Group of the reference"><option>UWB</option><option>LR</option></select>
+        <select class="num" id="refGroup" aria-label="Group of the reference"><option>UWB</option><option>2G4</option></select>
       </div>
       <p class="note" id="refState"></p>
       <h2 class="sub2" id="h-real">Real distance</h2>
@@ -168,7 +168,8 @@ const state = {
   ref: { tag: '', group: 'UWB' },  // the reference tag, kept in this browser
 };
 try { Object.assign(state.ref, JSON.parse(localStorage.getItem('distances.ref') || '{}')); } catch (e) { /* no storage */ }
-if (qs.has('ref')) { const [tag, group] = qs.get('ref').toUpperCase().split(':'); state.ref = { tag, group: group === 'LR' ? 'LR' : 'UWB' }; }
+if (state.ref.group !== '2G4') state.ref.group = 'UWB';  // also a reference saved when the group was still LR
+if (qs.has('ref')) { const [tag, group] = qs.get('ref').toUpperCase().split(':'); state.ref = { tag, group: group === '2G4' ? '2G4' : 'UWB' }; }
 const refName = () => /^[0-9A-F]{4}$/.test(state.ref.tag) ? state.ref.tag + ' ' + state.ref.group : '';
 
 // ---- protobuf: ulr.v1.Range, by hand (varints, length-delimited, packed repeated) ----
@@ -202,7 +203,7 @@ function decodeRange(bytes) {
     if (i !== end) throw new Error('bad length');
   };
   const sub = () => { const l = varint(b.length); return i + l; };
-  const msg = { header: { seq: 0, t_ms: 0, boot: 0 }, lr: [], uwb: [] };
+  const msg = { header: { seq: 0, t_ms: 0, boot: 0 }, rf2g4: [], uwb: [] };
   fields(b.length, (f, wt) => {
     if (f === 1 && wt === 2) {
       fields(sub(), (hf, hwt, e) => {
@@ -222,7 +223,7 @@ function decodeRange(bytes) {
         if (arr && (twt === 2 || twt === 0)) { repeated(arr, twt, e); return true; }
         return false;
       });
-      (f === 2 ? msg.lr : msg.uwb).push(t);
+      (f === 2 ? msg.rf2g4 : msg.uwb).push(t);
       return true;
     }
     return false;
@@ -236,7 +237,7 @@ function origin(group, n, ndm) {
   if (group === 'UWB') return 'UWB';
   if (ndm === 0) return 'LoRa';
   if (ndm === n) return 'DM';
-  return 'LR';
+  return '2G4';
 }
 function take(sensor, msg, arrival) {
   const s = state.sensors[sensor] || (state.sensors[sensor] = { addr: sensor, msgs: 0, gaps: 0, values: 0 });
@@ -244,7 +245,7 @@ function take(sensor, msg, arrival) {
   if (s.boot === msg.header.boot && msg.header.seq > s.seq + 1) s.gaps += msg.header.seq - s.seq - 1;
   s.boot = msg.header.boot; s.seq = msg.header.seq; s.msgs++; s.last = arrival;
   const base = msg.header.t_ms || arrival;
-  for (const [group, tracks] of [['LR', msg.lr], ['UWB', msg.uwb]]) {
+  for (const [group, tracks] of [['2G4', msg.rf2g4], ['UWB', msg.uwb]]) {
     for (const t of tracks) {
       const tag = hex4(t.tag);
       if (!t.cm.length && t.lost) {
@@ -268,7 +269,7 @@ function take(sensor, msg, arrival) {
 }
 
 // ---- series of the sensor in view ----
-// Where a value came from, for the hover: in LR, DM or LoRa ranging (a window of many says how many of each).
+// Where a value came from, for the hover: in 2G4, DM or LoRa ranging (a window of many says how many of each).
 function originOf(r) {
   if (r.group === 'UWB') return r.n > 1 ? `${r.n} UWB measurements` : 'UWB';
   if (r.n <= 1) return r.ndm ? 'DM' : 'LoRa';
@@ -330,9 +331,9 @@ function errOf(s, ref) {
   const rmse = Math.sqrt(e.reduce((a, b) => a + b * b, 0) / e.length);
   return { n: e.length, mean, sd, rmse };
 }
-// Each group of each tag has its own hue: "C096 LR", and the raw DM and LoRa values behind it, share one;
+// Each group of each tag has its own hue: "C096 2G4", and the raw DM and LoRa values behind it, share one;
 // "C096 UWB" and its raw values another.
-const groupKey = name => name.split(' ')[0] + (name.includes(' UWB') ? ' UWB' : ' LR');
+const groupKey = name => name.split(' ')[0] + (name.includes(' UWB') ? ' UWB' : ' 2G4');
 const colorOf = (keys, name) => COLORS[keys.indexOf(groupKey(name)) % COLORS.length] || COLORS[0];
 
 function traces(series, marks, refName) {
