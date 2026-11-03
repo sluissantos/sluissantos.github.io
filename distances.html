@@ -8,7 +8,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/mqtt@5.10.1/dist/mqtt.min.js"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.3/plotly.min.js"></script>
 <style>
   :root {
     --bg:#12161a; --panel:#1a2025; --line:#262e35; --line2:#303a42; --line3:#3a444d;
@@ -342,12 +342,17 @@ function render() {
   $('pause').classList.toggle('on', state.paused);
   $('marks').innerHTML = state.marks.map(m => `<span>${fmtT(m.ts)}  ${m.m.toFixed(2)} m</span>`).join('');
 
-  const all = seriesOf(state.sensor, 0);
-  Plotly.react('chart', traces(all, state.marks), LAYOUT, { responsive: true, displaylogo: false });
   const lastMark = state.marks.length ? state.marks[state.marks.length - 1].ts : 0;
   $('stats').innerHTML = statsTable(seriesOf(state.sensor, lastMark));
   const [first, last] = minMax(state.rows.filter(r => r.sensor === state.sensor && r.cm !== null).map(r => r.ts));
   $('span').textContent = Number.isFinite(first) ? `${fmtT(first)} – ${fmtT(last)}` : '';
+
+  // The chart last: without Plotly (its script did not load) the table and the exports still work.
+  if (typeof Plotly === 'undefined') {
+    $('chart').textContent = 'The chart library did not load (cdnjs plotly.js): the table and the exports still work.';
+    return;
+  }
+  Plotly.react('chart', traces(seriesOf(state.sensor, 0), state.marks), LAYOUT, { responsive: true, displaylogo: false });
 }
 
 // ---- exports ----
@@ -378,7 +383,7 @@ $('exportHtml').onclick = () => {
   const title = `Distances ${state.sensor} ${new Date().toLocaleString()}`;
   const data = JSON.stringify({ series, marks: state.marks }).replace(/</g, '\\u003c');
   const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
-<title>${title}</title><script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.2/plotly.min.js"><\/script>
+<title>${title}</title><script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.3/plotly.min.js"><\/script>
 <style>body{margin:0;padding:16px;background:#12161a;color:#e6eaed;font:14px system-ui,sans-serif}h1{font-size:18px;margin:0 0 12px}
 #chart{height:70vh}table{border-collapse:collapse;font-size:12px;margin-top:16px}th,td{padding:5px 8px;border-bottom:1px solid #262e35;text-align:right}
 th:first-child,td:first-child{text-align:left}td{font-family:monospace}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}</style>
