@@ -123,7 +123,7 @@
       <div id="chart"></div>
     </section>
     <section aria-labelledby="h-stats">
-      <div class="headrow"><h2 id="h-stats">Series</h2><small>Since the last mark when there is one; the whole collection otherwise</small></div>
+      <div class="headrow"><h2 id="h-stats">Series</h2><small>Last 5 minutes; from the last mark when it is newer</small></div>
       <div class="tablewrap"><table id="stats"></table></div>
     </section>
   </div>
@@ -144,6 +144,7 @@ const SITE = qs.get('site') || 'lpx/demo/bh';
 const TOPIC = SITE + '/revolog/sensor/+/uplink/range';
 const PREFIX = SITE + '/revolog/sensor/';
 const ROWS_MAX = 500000;   // values kept, all sensors: hours of a radio test
+const TABLE_MS = 5 * 60 * 1000;  // the table covers this much: a fixed sample of each series
 // One hue per tag, in this fixed order (blue, orange, aqua, yellow, magenta, green, violet, red): checked for
 // colour blindness on the white chart; the three lightest sit under 3:1 there, so the legend and the table name
 // every series. The raw values of a tag wear its hue, hollow.
@@ -349,8 +350,9 @@ function render() {
   $('pause').classList.toggle('on', state.paused);
   $('marks').innerHTML = state.marks.map(m => `<span>${fmtT(m.ts)}  ${m.m.toFixed(2)} m</span>`).join('');
 
+  // The last 5 minutes, but never across a mark: two real distances in one row would mean nothing.
   const lastMark = state.marks.length ? state.marks[state.marks.length - 1].ts : 0;
-  $('stats').innerHTML = statsTable(seriesOf(state.sensor, lastMark));
+  $('stats').innerHTML = statsTable(seriesOf(state.sensor, Math.max(Date.now() - TABLE_MS, lastMark)));
   const [first, last] = minMax(state.rows.filter(r => r.sensor === state.sensor && r.cm !== null).map(r => r.ts));
   $('span').textContent = Number.isFinite(first) ? `${fmtT(first)} – ${fmtT(last)}` : '';
 
@@ -394,7 +396,7 @@ $('exportHtml').onclick = () => {
 <style>body{margin:0;padding:16px;background:#ffffff;color:#0b0b0b;font:14px system-ui,sans-serif}h1{font-size:18px;margin:0 0 12px}
 #chart{height:70vh}table{border-collapse:collapse;font-size:12px;margin-top:16px}th{color:#52514e;font-weight:500}th,td{padding:5px 8px;border-bottom:1px solid #ecebe7;text-align:right}
 th:first-child,td:first-child{text-align:left}td{font-family:monospace}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}</style>
-</head><body><h1>${title}</h1><div id="chart"></div><table id="stats"></table><script>
+</head><body><h1>${title}</h1><div id="chart"></div><p style="margin:16px 0 0;color:#52514e;font-size:12px">Series over the whole collection</p><table id="stats"></table><script>
 const D = ${data};
 const COLORS = ${JSON.stringify(COLORS)};
 const minMax = ${minMax.toString()};
@@ -444,6 +446,8 @@ client.on('message', (topic, payload) => {
   scheduleRender();
 });
 
+// The table moves on with the clock even when no message arrives.
+setInterval(scheduleRender, 5000);
 render();
 </script>
 </body>
