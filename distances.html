@@ -75,7 +75,7 @@
   td { font-family:var(--mono); }
   td .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:6px; vertical-align:baseline; }
   .tablewrap { overflow:auto; max-height:360px; }
-  #chart { width:100%; height:420px; }
+  #chart { width:100%; height:420px; background:#ffffff; border-radius:6px; overflow:hidden; }
   @media (min-width:1100px) { #chart { flex:1; height:auto; min-height:420px; } }
   .marks { font:400 12px var(--mono); color:var(--muted); display:flex; flex-direction:column; gap:2px; max-height:120px; overflow-y:auto; }
 </style>
@@ -144,7 +144,10 @@ const SITE = qs.get('site') || 'lpx/demo/bh';
 const TOPIC = SITE + '/revolog/sensor/+/uplink/range';
 const PREFIX = SITE + '/revolog/sensor/';
 const ROWS_MAX = 500000;   // values kept, all sensors: hours of a radio test
-const COLORS = ['#f5a524', '#4cc9f0', '#7be8ab', '#ff9d9d', '#c3a6ff', '#ffd166', '#5ad1c4', '#f28fd1', '#9ad06a', '#e8915b'];
+// One hue per tag, in this fixed order (blue, orange, aqua, yellow, magenta, green, violet, red): checked for
+// colour blindness on the white chart; the three lightest sit under 3:1 there, so the legend and the table name
+// every series. The raw values of a tag wear its hue, hollow.
+const COLORS = ['#2a78d6', '#eb6834', '#1baf7a', '#eda100', '#e87ba4', '#008300', '#6250d6', '#e34948'];
 
 const state = {
   paused: false,
@@ -276,47 +279,51 @@ function statsOf(s) {
   const span = (last - first) / 1000;
   return { n, hz: span > 0 ? (n - 1) / span : 0, med, mean, sd, min: v[0], max: v[n - 1] };
 }
-const colorOf = (names, name) => COLORS[names.indexOf(name.replace(/ raw$/, '').replace(/ (LoRa|DM|LR|UWB)$/, ''))
-  % COLORS.length] || COLORS[0];
+// Each group of each tag has its own hue: "C096 LR", and the raw DM and LoRa values behind it, share one;
+// "C096 UWB" and its raw values another.
+const groupKey = name => name.split(' ')[0] + (name.includes(' UWB') ? ' UWB' : ' LR');
+const colorOf = (keys, name) => COLORS[keys.indexOf(groupKey(name)) % COLORS.length] || COLORS[0];
 
 function traces(series, marks) {
-  const tags = [...new Set(series.map(s => s.name.split(' ')[0]))].sort();
+  const keys = [...new Set(series.map(s => groupKey(s.name)))].sort();
   const out = series.map(s => {
     const raw = s.name.endsWith(' raw');
-    const c = colorOf(tags, s.name);
+    const c = colorOf(keys, s.name);
     return {
       type: 'scattergl', mode: 'markers', name: s.name,
       x: s.ts.map(t => new Date(t)), y: s.cm.map(v => v / 100),
-      marker: raw ? { size: 5, color: c, opacity: .45, symbol: s.name.includes(' DM ') ? 'diamond' : 'circle-open' }
-                  : { size: 6, color: c },
+      marker: raw ? { size: 7, color: c, opacity: .7, symbol: s.name.includes(' DM ') ? 'diamond-open' : 'circle-open', line: { width: 1.5 } }
+                  : { size: 8, color: c, line: { color: '#ffffff', width: 1 } },
       hovertemplate: '%{x|%H:%M:%S.%L}<br>%{y:.2f} m<extra>' + s.name + '</extra>',
     };
   });
   if (marks.length) {
     out.push({
-      type: 'scatter', mode: 'lines+markers', name: 'Real distance', line: { shape: 'hv', color: '#e6eaed', width: 2 },
-      marker: { size: 6, color: '#e6eaed' }, x: [...marks.map(m => new Date(m.ts)), new Date()], y: [...marks.map(m => m.m), marks[marks.length - 1].m],
+      type: 'scatter', mode: 'lines+markers', name: 'Real distance', line: { shape: 'hv', color: '#3d3d3a', width: 2 },
+      marker: { size: 8, color: '#3d3d3a', line: { color: '#ffffff', width: 1 } }, x: [...marks.map(m => new Date(m.ts)), new Date()], y: [...marks.map(m => m.m), marks[marks.length - 1].m],
       hovertemplate: '%{x|%H:%M:%S}<br>%{y:.2f} m<extra>real</extra>',
     });
   }
   return out;
 }
 const LAYOUT = {
-  paper_bgcolor: '#1a2025', plot_bgcolor: '#12161a', font: { color: '#e6eaed', family: 'IBM Plex Sans, sans-serif', size: 12 },
-  margin: { l: 56, r: 16, t: 8, b: 40 }, hovermode: 'closest', uirevision: 'keep',
-  xaxis: { gridcolor: '#303a42', type: 'date' }, yaxis: { gridcolor: '#303a42', title: 'distance (m)', rangemode: 'tozero' },
-  legend: { orientation: 'h', y: -0.15 },
+  paper_bgcolor: '#ffffff', plot_bgcolor: '#ffffff', font: { color: '#52514e', family: 'IBM Plex Sans, sans-serif', size: 12 },
+  margin: { l: 60, r: 20, t: 16, b: 40 }, hovermode: 'closest', uirevision: 'keep',
+  hoverlabel: { bgcolor: '#ffffff', bordercolor: '#d6d5d0', font: { color: '#0b0b0b' } },
+  xaxis: { type: 'date', gridcolor: '#ecebe7', linecolor: '#d6d5d0', zeroline: false },
+  yaxis: { title: 'distance (m)', rangemode: 'tozero', gridcolor: '#ecebe7', linecolor: '#d6d5d0', zerolinecolor: '#d6d5d0' },
+  legend: { orientation: 'h', y: -0.15, font: { color: '#0b0b0b' } },
 };
 
 // ---- rendering ----
 const fmtT = t => new Date(t).toLocaleTimeString([], { hour12: false });
 function statsTable(series) {
   if (!series.length) return '<tr><td class="empty">No value yet.</td></tr>';
-  const tags = [...new Set(series.map(s => s.name.split(' ')[0]))].sort();
+  const keys = [...new Set(series.map(s => groupKey(s.name)))].sort();
   const head = '<tr><th>Series</th><th>Values</th><th>Hz</th><th>Median m</th><th>Mean m</th><th>Std m</th><th>Min m</th><th>Max m</th></tr>';
   return head + series.map(s => {
     const st = statsOf(s);
-    return `<tr><td><span class="dot" style="background:${colorOf(tags, s.name)}"></span>${s.name}</td><td>${st.n}</td>`
+    return `<tr><td><span class="dot" style="background:${colorOf(keys, s.name)}"></span>${s.name}</td><td>${st.n}</td>`
       + `<td>${st.hz.toFixed(1)}</td><td>${st.med.toFixed(2)}</td><td>${st.mean.toFixed(2)}</td><td>${st.sd.toFixed(3)}</td>`
       + `<td>${st.min.toFixed(2)}</td><td>${st.max.toFixed(2)}</td></tr>`;
   }).join('');
@@ -384,13 +391,14 @@ $('exportHtml').onclick = () => {
   const data = JSON.stringify({ series, marks: state.marks }).replace(/</g, '\\u003c');
   const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title}</title><script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.3/plotly.min.js"><\/script>
-<style>body{margin:0;padding:16px;background:#12161a;color:#e6eaed;font:14px system-ui,sans-serif}h1{font-size:18px;margin:0 0 12px}
-#chart{height:70vh}table{border-collapse:collapse;font-size:12px;margin-top:16px}th,td{padding:5px 8px;border-bottom:1px solid #262e35;text-align:right}
+<style>body{margin:0;padding:16px;background:#ffffff;color:#0b0b0b;font:14px system-ui,sans-serif}h1{font-size:18px;margin:0 0 12px}
+#chart{height:70vh}table{border-collapse:collapse;font-size:12px;margin-top:16px}th{color:#52514e;font-weight:500}th,td{padding:5px 8px;border-bottom:1px solid #ecebe7;text-align:right}
 th:first-child,td:first-child{text-align:left}td{font-family:monospace}.dot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px}</style>
 </head><body><h1>${title}</h1><div id="chart"></div><table id="stats"></table><script>
 const D = ${data};
 const COLORS = ${JSON.stringify(COLORS)};
 const minMax = ${minMax.toString()};
+const groupKey = ${groupKey.toString()};
 const colorOf = ${colorOf.toString()};
 ${traces.toString()}
 ${statsOf.toString()}
