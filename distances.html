@@ -56,7 +56,9 @@
   .ghost:hover:not(:disabled) { background:#2a333b; }
   .ghost:disabled { opacity:.4; cursor:default; }
   .ghost.on { border-color:var(--accent); color:var(--accent); background:var(--accent-bg); }
-  input.num { height:36px; width:110px; padding:0 10px; font:400 13px var(--mono); color:var(--fg); background:var(--bg); border:1px solid var(--line3); border-radius:6px; }
+  input.num, select.num { height:36px; width:110px; padding:0 10px; font:400 13px var(--mono); color:var(--fg); background:var(--bg); border:1px solid var(--line3); border-radius:6px; }
+  select.num { width:auto; }
+  h2.sub2 { margin-top:8px; }
   .row { display:flex; flex-wrap:wrap; align-items:center; gap:8px; }
 
   .scroll { overflow-y:auto; max-height:320px; display:flex; flex-direction:column; scrollbar-color:#3a444d #1a2025; }
@@ -106,9 +108,16 @@
       <div class="scroll" id="sensorList"></div>
       <p class="empty" id="noSensors">No range received yet. The sensors publish on <span class="mono" id="topicName"></span>.</p>
     </section>
-    <section aria-labelledby="h-real">
-      <h2 id="h-real">Real distance</h2>
-      <p class="note">Mark where the tag is now. The chart draws it as the reference, and the exports carry it.</p>
+    <section aria-labelledby="h-ref">
+      <h2 id="h-ref">Reference</h2>
+      <p class="note">The tag whose distance counts as the true one, usually by UWB. The table gives the error of every other series against it.</p>
+      <div class="row">
+        <input class="num" id="refTag" maxlength="4" placeholder="C096" aria-label="Reference tag, 4 hex digits" autocomplete="off" spellcheck="false">
+        <select class="num" id="refGroup" aria-label="Group of the reference"><option>UWB</option><option>LR</option></select>
+      </div>
+      <p class="note" id="refState"></p>
+      <h2 class="sub2" id="h-real">Real distance</h2>
+      <p class="note">Mark where the tag is now. With no reference tag, the error is against these marks.</p>
       <div class="row">
         <input class="num" id="realM" type="number" min="0" step="0.1" inputmode="decimal" placeholder="m" aria-label="Real distance in m">
         <button class="ghost" id="mark" type="button">Mark</button>
@@ -123,7 +132,7 @@
       <div id="chart"></div>
     </section>
     <section aria-labelledby="h-stats">
-      <div class="headrow"><h2 id="h-stats">Series</h2><small>Last 5 minutes; from the last mark when it is newer</small></div>
+      <div class="headrow"><h2 id="h-stats">Series</h2><small>Last 5 minutes, from the last mark when it is newer. Error: value − reference</small></div>
       <div class="tablewrap"><table id="stats"></table></div>
     </section>
   </div>
@@ -156,7 +165,11 @@ const state = {
   sensors: {},  // addr -> { addr, msgs, gaps, last, boot, seq }
   rows: [],     // { ts, sensor, boot, seq, group, tag, series, cm, raw, n, ndm, age, lost }
   marks: [],    // { ts, m }
+  ref: { tag: '', group: 'UWB' },  // the reference tag, kept in this browser
 };
+try { Object.assign(state.ref, JSON.parse(localStorage.getItem('distances.ref') || '{}')); } catch (e) { /* no storage */ }
+if (qs.has('ref')) { const [tag, group] = qs.get('ref').toUpperCase().split(':'); state.ref = { tag, group: group === 'LR' ? 'LR' : 'UWB' }; }
+const refName = () => /^[0-9A-F]{4}$/.test(state.ref.tag) ? state.ref.tag + ' ' + state.ref.group : '';
 
 // ---- protobuf: ulr.v1.Range, by hand (varints, length-delimited, packed repeated) ----
 function decodeRange(bytes) {
@@ -280,16 +293,56 @@ function statsOf(s) {
   const span = (last - first) / 1000;
   return { n, hz: span > 0 ? (n - 1) / span : 0, med, mean, sd, min: v[0], max: v[n - 1] };
 }
+// The reference at each instant, in m: the series of the reference tag, linearly between its two values around the
+// instant when they are at most REF_GAP_MS apart, or, with no reference tag, the last mark of the real distance.
+// undefined where there is none.
+const REF_GAP_MS = 2000;
+function makeRef(series, refName, marks) {
+  const s = refName ? series.find(x => x.name === refName) : null;
+  if (s) {
+    const order = s.ts.map((t, i) => i).sort((a, b) => s.ts[a] - s.ts[b]);
+    const ts = order.map(i => s.ts[i]), v = order.map(i => s.cm[i] / 100);
+    return t => {
+      let lo = 0, hi = ts.length - 1;
+      if (t < ts[lo] || t > ts[hi]) return undefined;
+      while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (ts[mid] <= t) lo = mid; else hi = mid; }
+      if (ts[hi] - ts[lo] > REF_GAP_MS) return undefined;
+      return ts[hi] === ts[lo] ? v[lo] : v[lo] + (v[hi] - v[lo]) * (t - ts[lo]) / (ts[hi] - ts[lo]);
+    };
+  }
+  if (!refName && marks.length) return t => { let m; for (const k of marks) if (k.ts <= t) m = k.m; return m; };
+  return () => undefined;
+}
+// Error of a series against the reference: mean (the bias), its spread, and the RMSE, over the values that have one.
+function errOf(s, ref) {
+  const e = [];
+  s.ts.forEach((t, i) => { const r = ref(t); if (r !== undefined) e.push(s.cm[i] / 100 - r); });
+  if (!e.length) return null;
+  const mean = e.reduce((a, b) => a + b, 0) / e.length;
+  const sd = Math.sqrt(e.reduce((a, b) => a + (b - mean) ** 2, 0) / e.length);
+  const rmse = Math.sqrt(e.reduce((a, b) => a + b * b, 0) / e.length);
+  return { n: e.length, mean, sd, rmse };
+}
 // Each group of each tag has its own hue: "C096 LR", and the raw DM and LoRa values behind it, share one;
 // "C096 UWB" and its raw values another.
 const groupKey = name => name.split(' ')[0] + (name.includes(' UWB') ? ' UWB' : ' LR');
 const colorOf = (keys, name) => COLORS[keys.indexOf(groupKey(name)) % COLORS.length] || COLORS[0];
 
-function traces(series, marks) {
+function traces(series, marks, refName) {
   const keys = [...new Set(series.map(s => groupKey(s.name)))].sort();
   const out = series.map(s => {
     const raw = s.name.endsWith(' raw');
     const c = colorOf(keys, s.name);
+    if (s.name === refName) {
+      // The reference: a dark line, under the series it judges.
+      const order = s.ts.map((t, i) => i).sort((a, b) => s.ts[a] - s.ts[b]);
+      return {
+        type: 'scattergl', mode: 'lines+markers', name: s.name + ' (reference)',
+        x: order.map(i => new Date(s.ts[i])), y: order.map(i => s.cm[i] / 100),
+        line: { color: '#3d3d3a', width: 2 }, marker: { size: 5, color: '#3d3d3a' },
+        hovertemplate: '%{x|%H:%M:%S.%L}<br>%{y:.2f} m<extra>reference</extra>',
+      };
+    }
     return {
       type: 'scattergl', mode: 'markers', name: s.name,
       x: s.ts.map(t => new Date(t)), y: s.cm.map(v => v / 100),
@@ -300,7 +353,7 @@ function traces(series, marks) {
   });
   if (marks.length) {
     out.push({
-      type: 'scatter', mode: 'lines+markers', name: 'Real distance', line: { shape: 'hv', color: '#3d3d3a', width: 2 },
+      type: 'scatter', mode: 'lines+markers', name: 'Real distance', line: { shape: 'hv', color: '#3d3d3a', width: 2, dash: refName ? 'dash' : 'solid' },
       marker: { size: 8, color: '#3d3d3a', line: { color: '#ffffff', width: 1 } }, x: [...marks.map(m => new Date(m.ts)), new Date()], y: [...marks.map(m => m.m), marks[marks.length - 1].m],
       hovertemplate: '%{x|%H:%M:%S}<br>%{y:.2f} m<extra>real</extra>',
     });
@@ -318,15 +371,20 @@ const LAYOUT = {
 
 // ---- rendering ----
 const fmtT = t => new Date(t).toLocaleTimeString([], { hour12: false });
-function statsTable(series) {
+function statsTable(series, ref, refName) {
   if (!series.length) return '<tr><td class="empty">No value yet.</td></tr>';
   const keys = [...new Set(series.map(s => groupKey(s.name)))].sort();
-  const head = '<tr><th>Series</th><th>Values</th><th>Hz</th><th>Median m</th><th>Mean m</th><th>Std m</th><th>Min m</th><th>Max m</th></tr>';
+  const head = '<tr><th>Series</th><th>Values</th><th>Hz</th><th>Median m</th><th>Mean m</th><th>Std m</th><th>Min m</th><th>Max m</th>'
+    + '<th>With ref</th><th>Error m</th><th>Error std m</th><th>RMSE m</th></tr>';
   return head + series.map(s => {
     const st = statsOf(s);
+    const er = s.name === refName ? null : errOf(s, ref);
+    const errCells = s.name === refName ? '<td>reference</td><td></td><td></td><td></td>'
+      : er ? `<td>${er.n}</td><td>${er.mean >= 0 ? '+' : ''}${er.mean.toFixed(2)}</td><td>${er.sd.toFixed(3)}</td><td>${er.rmse.toFixed(3)}</td>`
+      : '<td>0</td><td></td><td></td><td></td>';
     return `<tr><td><span class="dot" style="background:${colorOf(keys, s.name)}"></span>${s.name}</td><td>${st.n}</td>`
       + `<td>${st.hz.toFixed(1)}</td><td>${st.med.toFixed(2)}</td><td>${st.mean.toFixed(2)}</td><td>${st.sd.toFixed(3)}</td>`
-      + `<td>${st.min.toFixed(2)}</td><td>${st.max.toFixed(2)}</td></tr>`;
+      + `<td>${st.min.toFixed(2)}</td><td>${st.max.toFixed(2)}</td>${errCells}</tr>`;
   }).join('');
 }
 let renderPending = false;
@@ -350,9 +408,17 @@ function render() {
   $('pause').classList.toggle('on', state.paused);
   $('marks').innerHTML = state.marks.map(m => `<span>${fmtT(m.ts)}  ${m.m.toFixed(2)} m</span>`).join('');
 
+  // The reference comes from the whole collection, so the values at the edge of the table still have one.
+  const all = seriesOf(state.sensor, 0);
+  const rn = refName();
+  const ref = makeRef(all, rn, state.marks);
+  const refSeries = all.find(x => x.name === rn);
+  $('refState').textContent = rn ? (refSeries ? `${rn}: ${refSeries.cm.length} values` : `${rn}: nothing from it yet on ${state.sensor || 'this anchor'}`)
+    : (state.marks.length ? 'No reference tag: the error is against the marks.' : 'No reference tag and no mark: no error column.');
+
   // The last 5 minutes, but never across a mark: two real distances in one row would mean nothing.
   const lastMark = state.marks.length ? state.marks[state.marks.length - 1].ts : 0;
-  $('stats').innerHTML = statsTable(seriesOf(state.sensor, Math.max(Date.now() - TABLE_MS, lastMark)));
+  $('stats').innerHTML = statsTable(seriesOf(state.sensor, Math.max(Date.now() - TABLE_MS, lastMark)), ref, rn);
   const [first, last] = minMax(state.rows.filter(r => r.sensor === state.sensor && r.cm !== null).map(r => r.ts));
   $('span').textContent = Number.isFinite(first) ? `${fmtT(first)} – ${fmtT(last)}` : '';
 
@@ -361,7 +427,7 @@ function render() {
     $('chart').textContent = 'The chart library did not load (cdnjs plotly.js): the table and the exports still work.';
     return;
   }
-  Plotly.react('chart', traces(seriesOf(state.sensor, 0), state.marks), LAYOUT, { responsive: true, displaylogo: false });
+  Plotly.react('chart', traces(all, state.marks, rn), LAYOUT, { responsive: true, displaylogo: false });
 }
 
 // ---- exports ----
@@ -374,23 +440,27 @@ function download(name, text, type) {
   setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 $('exportCsv').onclick = () => {
-  const lines = ['time,t_ms,sensor,boot,seq,group,tag,series,dist_cm,raw_cm,n,n_dm,age_ms,lost,real_m'];
+  const rn = refName();
+  const ref = makeRef(seriesOf(state.sensor, 0), rn, state.marks);
+  const lines = ['time,t_ms,sensor,boot,seq,group,tag,series,dist_cm,raw_cm,n,n_dm,age_ms,lost,real_m,ref_m,err_m'];
   const events = [
     ...state.rows.filter(r => r.sensor === state.sensor).map(r => ({ ts: r.ts, r })),
     ...state.marks.map(m => ({ ts: m.ts, m })),
   ].sort((a, b) => a.ts - b.ts);
   for (const e of events) {
     const t = new Date(e.ts).toISOString();
-    if (e.m) { lines.push(`${t},${e.ts},${state.sensor},,,REF,,,,,,,,,${e.m.m}`); continue; }
+    if (e.m) { lines.push(`${t},${e.ts},${state.sensor},,,REF,,,,,,,,,${e.m.m},,`); continue; }
     const r = e.r;
-    lines.push([t, r.ts, r.sensor, r.boot, r.seq, r.group, r.tag, r.series, r.cm ?? '', r.raw ?? '', r.n, r.ndm, r.age, r.lost, ''].join(','));
+    const rv = (r.cm !== null && r.series !== rn) ? ref(r.ts) : undefined;
+    lines.push([t, r.ts, r.sensor, r.boot, r.seq, r.group, r.tag, r.series, r.cm ?? '', r.raw ?? '', r.n, r.ndm, r.age, r.lost, '',
+      rv === undefined ? '' : rv.toFixed(3), rv === undefined ? '' : (r.cm / 100 - rv).toFixed(3)].join(','));
   }
   download(`distances-${state.sensor || 'none'}-${stamp()}.csv`, lines.join('\r\n') + '\r\n', 'text/csv');
 };
 $('exportHtml').onclick = () => {
   const series = seriesOf(state.sensor, 0);
   const title = `Distances ${state.sensor} ${new Date().toLocaleString()}`;
-  const data = JSON.stringify({ series, marks: state.marks }).replace(/</g, '\\u003c');
+  const data = JSON.stringify({ series, marks: state.marks, refName: refName() }).replace(/</g, '\\u003c');
   const page = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${title}</title><script src="https://cdnjs.cloudflare.com/ajax/libs/plotly.js/2.35.3/plotly.min.js"><\/script>
 <style>body{margin:0;padding:16px;background:#ffffff;color:#0b0b0b;font:14px system-ui,sans-serif}h1{font-size:18px;margin:0 0 12px}
@@ -402,11 +472,14 @@ const COLORS = ${JSON.stringify(COLORS)};
 const minMax = ${minMax.toString()};
 const groupKey = ${groupKey.toString()};
 const colorOf = ${colorOf.toString()};
+const REF_GAP_MS = ${REF_GAP_MS};
+${makeRef.toString()}
+${errOf.toString()}
 ${traces.toString()}
 ${statsOf.toString()}
 ${statsTable.toString()}
-Plotly.newPlot('chart', traces(D.series, D.marks), ${JSON.stringify(LAYOUT)}, { responsive: true, displaylogo: false });
-document.getElementById('stats').innerHTML = statsTable(D.series);
+Plotly.newPlot('chart', traces(D.series, D.marks, D.refName), ${JSON.stringify(LAYOUT)}, { responsive: true, displaylogo: false });
+document.getElementById('stats').innerHTML = statsTable(D.series, makeRef(D.series, D.refName, D.marks), D.refName);
 <\/script></body></html>`;
   download(`distances-${state.sensor || 'none'}-${stamp()}.html`, page, 'text/html');
 };
@@ -422,6 +495,15 @@ $('mark').onclick = () => {
 };
 $('realM').addEventListener('keydown', e => { if (e.key === 'Enter') $('mark').click(); });
 $('unmark').onclick = () => { state.marks.pop(); render(); };
+function setRef() {
+  state.ref = { tag: $('refTag').value.trim().toUpperCase(), group: $('refGroup').value };
+  try { localStorage.setItem('distances.ref', JSON.stringify(state.ref)); } catch (e) { /* no storage */ }
+  render();
+}
+$('refTag').value = state.ref.tag || '';
+$('refGroup').value = state.ref.group;
+$('refTag').addEventListener('input', () => { $('refTag').value = $('refTag').value.toUpperCase().replace(/[^0-9A-F]/g, ''); setRef(); });
+$('refGroup').onchange = setRef;
 $('siteName').textContent = SITE;
 $('topicName').textContent = TOPIC;
 
