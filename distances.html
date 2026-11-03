@@ -268,17 +268,24 @@ function take(sensor, msg, arrival) {
 }
 
 // ---- series of the sensor in view ----
+// Where a value came from, for the hover: in LR, DM or LoRa ranging (a window of many says how many of each).
+function originOf(r) {
+  if (r.group === 'UWB') return r.n > 1 ? `${r.n} UWB measurements` : 'UWB';
+  if (r.n <= 1) return r.ndm ? 'DM' : 'LoRa';
+  return `${r.ndm} DM + ${r.n - r.ndm} LoRa`;
+}
 function seriesOf(sensor, from) {
   const map = new Map();
-  const add = (name, ts, cm) => {
+  const add = (name, ts, cm, info) => {
     let s = map.get(name);
-    if (!s) map.set(name, s = { name, ts: [], cm: [] });
-    s.ts.push(ts); s.cm.push(cm);
+    if (!s) map.set(name, s = { name, ts: [], cm: [], info: [] });
+    s.ts.push(ts); s.cm.push(cm); s.info.push(info);
   };
   for (const r of state.rows) {
     if (r.sensor !== sensor || r.cm === null || r.ts < from) continue;
-    add(r.series, r.ts, r.cm);
-    if (r.rawSeries) add(r.rawSeries, r.ts, r.raw);
+    const info = originOf(r);
+    add(r.series, r.ts, r.cm, info);
+    if (r.rawSeries) add(r.rawSeries, r.ts, r.raw, info);
   }
   return [...map.values()].sort((a, b) => a.name.localeCompare(b.name));
 }
@@ -338,17 +345,17 @@ function traces(series, marks, refName) {
       const order = s.ts.map((t, i) => i).sort((a, b) => s.ts[a] - s.ts[b]);
       return {
         type: 'scattergl', mode: 'lines+markers', name: s.name + ' (reference)',
-        x: order.map(i => new Date(s.ts[i])), y: order.map(i => s.cm[i] / 100),
+        x: order.map(i => new Date(s.ts[i])), y: order.map(i => s.cm[i] / 100), customdata: order.map(i => s.info[i]),
         line: { color: '#3d3d3a', width: 2 }, marker: { size: 5, color: '#3d3d3a' },
-        hovertemplate: '%{x|%H:%M:%S.%L}<br>%{y:.2f} m<extra>reference</extra>',
+        hovertemplate: '%{x|%H:%M:%S.%L}<br>%{y:.2f} m<br>%{customdata}<extra>reference</extra>',
       };
     }
     return {
       type: 'scattergl', mode: 'markers', name: s.name,
-      x: s.ts.map(t => new Date(t)), y: s.cm.map(v => v / 100),
+      x: s.ts.map(t => new Date(t)), y: s.cm.map(v => v / 100), customdata: s.info,
       marker: raw ? { size: 7, color: c, opacity: .7, symbol: s.name.includes(' DM ') ? 'diamond-open' : 'circle-open', line: { width: 1.5 } }
                   : { size: 8, color: c, line: { color: '#ffffff', width: 1 } },
-      hovertemplate: '%{x|%H:%M:%S.%L}<br>%{y:.2f} m<extra>' + s.name + '</extra>',
+      hovertemplate: '%{x|%H:%M:%S.%L}<br>%{y:.2f} m<br>%{customdata}<extra>' + s.name + '</extra>',
     };
   });
   if (marks.length) {
