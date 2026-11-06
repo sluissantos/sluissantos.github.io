@@ -46,6 +46,10 @@
     main { padding:24px; grid-template-columns:340px minmax(0,1fr); align-content:stretch; }
     section, .col { min-height:0; }
     #chartSec { min-height:0; }
+    /* The left column scrolls on its own: anchor, reference and policy are taller than the window, and the
+       chart and the table stay where they are */
+    .col.side { overflow-y:auto; padding-right:6px; scrollbar-color:#3a444d #12161a; }
+    .col.side > section { flex-shrink:0; }
   }
   section { background:var(--panel); border:1px solid var(--line); border-radius:8px; padding:16px; display:flex; flex-direction:column; gap:12px; min-width:0; }
   h2 { margin:0; font-size:15px; font-weight:600; }
@@ -108,7 +112,7 @@
 </header>
 
 <main>
-  <div class="col">
+  <div class="col side">
     <section aria-labelledby="h-sensors">
       <div class="headrow"><h2 id="h-sensors">Anchor</h2><small id="collecting"></small></div>
       <div class="scroll" id="sensorList"></div>
