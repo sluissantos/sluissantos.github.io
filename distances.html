@@ -89,6 +89,7 @@
   .pgrid label { color:var(--fg); }
   .pgrid input { height:32px; width:100%; padding:0 8px; font:400 13px var(--mono); color:var(--fg); background:var(--bg); border:1px solid var(--line3); border-radius:6px; }
   .pgrid input.bad { border-color:var(--bad-fg); }
+  .pgrid select { height:32px; width:100%; padding:0 4px; font:400 12px var(--sans); color:var(--fg); background:var(--bg); border:1px solid var(--line3); border-radius:6px; }
   .note.ok { color:var(--ok-fg); } .note.bad { color:var(--bad-fg); }
 </style>
 </head>
@@ -139,13 +140,10 @@
       <div class="headrow"><h2 id="h-policy">Policy</h2><small id="policyFor"></small></div>
       <p class="note" id="policyState"></p>
       <div class="row">
-        <select class="num" id="preset" aria-label="Fill both sets with a profile of the firmware">
-          <option value="">Profile…</option><option value="anchor">Anchor</option><option value="presence">Presence</option><option value="radio">Radio test</option>
-        </select>
         <button class="ghost" id="reloadPolicy" type="button" title="Fill with the policy the sensor has in force">From sensor</button>
       </div>
       <div class="pgrid" id="policyGrid"></div>
-      <p class="note">Window 0: each measurement. Max, deadband and keepalive 0: off. The cellular set is the one in use; the other waits for a cable or Wi-Fi.</p>
+      <p class="note">Profile fills its set with one of the firmware, and shows which one the values match (Custom: none). Window 0: each measurement after the filter. Max, deadband and keepalive 0: off. The cellular set is the one in use; the other waits for a cable or Wi-Fi.</p>
       <div class="row"><button class="ghost" id="sendPolicy" type="button">Send</button></div>
       <p class="note" id="policyMsg" role="status"></p>
     </section>
@@ -650,6 +648,7 @@ const PRESETS = {
   presence: { window_ms: 10000, send_ms: 10000, keepalive_ms: 60000, rf2g4: { max_cm: 0, deadband_cm: 50 }, uwb: { max_cm: 0, deadband_cm: 20 } },
   radio: { window_ms: 0, send_ms: 1000 },
 };
+const PRESET_NAMES = { anchor: 'Anchor', presence: 'Presence', radio: 'Radio test' };
 state.configs = {};     // addr -> the last SensorConfigState, with { at } its arrival
 state.policySent = {};  // addr -> id of the config sent, until an answer carries it
 const policyUi = { dirty: false, sensor: null, filledAt: 0 };
@@ -664,8 +663,29 @@ function buildPolicyGrid() {
       cells.push(`<input id="p-${set}-${path}" type="number" min="0" step="any" inputmode="decimal" placeholder="0" aria-label="${label}, ${setLabel}">`);
     }
   }
+  // The profile of each set: it fills the set, and it follows what the set holds
+  cells.splice(3, 0, '<label for="pp-m2m">Profile</label>', ...SETS.map(([set, setLabel]) =>
+    `<select id="pp-${set}" aria-label="Profile, ${setLabel}"><option value="">Custom</option>`
+    + Object.entries(PRESET_NAMES).map(([k, name]) => `<option value="${k}">${name}</option>`).join('') + '</select>'));
   $('policyGrid').innerHTML = cells.join('');
-  $('policyGrid').querySelectorAll('input').forEach(el => el.addEventListener('input', () => { policyUi.dirty = true; el.classList.remove('bad'); }));
+  $('policyGrid').querySelectorAll('input').forEach(el => el.addEventListener('input', () => {
+    policyUi.dirty = true; el.classList.remove('bad'); syncPresets();
+  }));
+  for (const [set] of SETS) {
+    $(`pp-${set}`).onchange = () => {
+      const p = PRESETS[$(`pp-${set}`).value];
+      if (p) { fillPolicy(set, Object.assign(emptyPolicy(), JSON.parse(JSON.stringify(p)))); policyUi.dirty = true; }
+    };
+  }
+}
+// Each set shows the profile its values match, or Custom.
+function syncPresets() {
+  for (const [set] of SETS) {
+    const r = readPolicy(set);
+    const json = r.p ? JSON.stringify(r.p) : null;
+    const k = json && Object.keys(PRESETS).find(name => JSON.stringify(Object.assign(emptyPolicy(), JSON.parse(JSON.stringify(PRESETS[name])))) === json);
+    $(`pp-${set}`).value = k || '';
+  }
 }
 function fillPolicy(set, p) {
   for (const [path, , , factor] of PFIELDS) {
@@ -673,6 +693,7 @@ function fillPolicy(set, p) {
     fieldEl(set, path).value = v ? String(v) : (path === 'send_ms' || path === 'window_ms' ? '0' : '');
     fieldEl(set, path).classList.remove('bad');
   }
+  syncPresets();
 }
 // The policy typed for one set, checked with the rules of the sensor (rangeSrvCheckPolicy()): { p } or { err, path }.
 function readPolicy(set) {
@@ -721,15 +742,6 @@ function renderPolicy() {
   $('sendPolicy').textContent = s ? 'Send to ' + s : 'Send';
   $('sendPolicy').disabled = !s || !client.connected;
 }
-$('preset').onchange = () => {
-  const p = PRESETS[$('preset').value];
-  if (p) {
-    const full = Object.assign(emptyPolicy(), JSON.parse(JSON.stringify(p)));
-    fillPolicy('m2m', full); fillPolicy('network', full);
-    policyUi.dirty = true;
-  }
-  $('preset').value = '';
-};
 $('reloadPolicy').onclick = () => {
   const c = state.configs[state.sensor];
   policyUi.dirty = false; policyUi.filledAt = 0;
