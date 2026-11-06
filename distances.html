@@ -524,7 +524,7 @@ function render() {
   $('sensorList').replaceChildren(...list.map(s => {
     const b = document.createElement('button');
     b.type = 'button'; b.className = 'sensor' + (s.addr === state.sensor ? ' on' : '');
-    b.innerHTML = `<b>${s.addr}</b><span><small>${s.msgs} messages · ${s.values} values · ${s.gaps} lost</small><br><small>boot ${s.boot}, seq ${s.seq}</small></span><span class="seen">${fmtT(s.last)}</span>`;
+    b.innerHTML = `<b>${s.addr}${demo[s.addr] ? ' <small>demo</small>' : ''}</b><span><small>${s.msgs} messages · ${s.values} values · ${s.gaps} lost</small><br><small>boot ${s.boot}, seq ${s.seq}</small></span><span class="seen">${fmtT(s.last)}</span>`;
     b.onclick = () => { state.sensor = s.addr; render(); };
     return b;
   }));
@@ -764,6 +764,14 @@ $('sendPolicy').onclick = () => {
   }
   // The id grows with the time, never 0: whoever reads the answer knows which config it carries.
   const id = Math.floor(Date.now() / 1000);
+  if (demo[s]) {
+    demoApply(s, id, sets);
+    $('policyMsg').textContent = `Demo sensor: config ${id} applied in this browser only, nothing went to the broker.`;
+    $('policyMsg').className = 'note';
+    policyUi.dirty = false;
+    render();
+    return;
+  }
   const topic = PREFIX + s + '/downlink/config';
   client.publish(topic, encodeConfig(id, sets.m2m, sets.network), { qos: 1, retain: true }, err => {
     $('policyMsg').textContent = err ? 'Not sent: ' + err.message : `Config ${id} sent to ${topic}, retained.`;
@@ -774,6 +782,84 @@ $('sendPolicy').onclick = () => {
   render();
 };
 buildPolicyGrid();
+
+// ---- demo sensors: distances.html?demo=2 ----
+// Simulated anchors, only in this browser, to see the page with more than one sensor: nothing goes to or comes
+// from the broker. Each one measures its own tags (UWB at ~4 Hz, a few cm of noise; 2G4 at ~10 Hz, tens of cm,
+// most of it from DM) as they walk slowly, and sends with its own policy, window and send as the firmware does:
+// window 0, each measurement; a window, the median of each one. The Policy block works on them, locally.
+const DEMO_N = Math.max(0, Math.min(Number(qs.get('demo')) || 0, 6));
+const demo = {};   // addr -> { policy, nextSend, seq, pending: [measurements], tags }
+const gauss = () => Math.sqrt(-2 * Math.log(1 - Math.random())) * Math.cos(2 * Math.PI * Math.random());
+const demoDefaults = () => ({ m2m: Object.assign(emptyPolicy(), PRESETS.radio), network: Object.assign(emptyPolicy(), PRESETS.anchor) });
+function demoState(addr, id, result) {
+  const d = demo[addr];
+  state.configs[addr] = { header: { seq: d.seq, t_ms: Date.now(), boot: 1 }, id, result, reason: '', m2m: d.policy.m2m, network: d.policy.network, at: Date.now() };
+}
+function demoApply(addr, id, sets) {
+  demo[addr].policy = { m2m: sets.m2m, network: sets.network };
+  demo[addr].pending = [];
+  demo[addr].nextSend = 0;   // the sends aligned to the new period
+  demoState(addr, id, 1);
+}
+function demoStart() {
+  for (let k = 0; k < DEMO_N; k++) {
+    const addr = 'D' + String(k + 1).padStart(3, '0');
+    const tags = [];
+    for (let j = 0; j < 3; j++) {
+      const tag = 0xB000 + (k + 1) * 0x100 + j + 1;
+      const base = 150 + 220 * j + 90 * k, phase = Math.random() * 6;
+      tags.push({ tag, group: 'UWB', hz: 4, sd: 5, base, phase });
+      if (j < 2) tags.push({ tag, group: '2G4', hz: 10, sd: 35, base, phase });
+    }
+    demo[addr] = { policy: demoDefaults(), nextSend: 0, seq: 0, pending: [], tags };
+    demoState(addr, 0, 0);
+  }
+  if (DEMO_N) setInterval(demoTick, 100);
+}
+function demoTick() {
+  const now = Date.now();
+  for (const [addr, d] of Object.entries(demo)) {
+    // The measurements of these 100 ms
+    for (const t of d.tags) {
+      if (Math.random() > t.hz / 10) continue;
+      const walk = 60 * Math.sin(now / 20000 + t.phase);   // ±0.6 m, a slow walk
+      d.pending.push({ ts: now, tag: t.tag, group: t.group, cm: Math.max(0, Math.round(t.base + walk + t.sd * gauss())), dm: t.group === '2G4' && Math.random() < 0.8 });
+    }
+    // The sends, aligned to the period, as the sensor does
+    const send = d.policy.m2m.send_ms || 1000, win = d.policy.m2m.window_ms;
+    if (!d.nextSend) d.nextSend = (Math.floor(now / send) + 1) * send;
+    if (now < d.nextSend) continue;
+    d.nextSend += send;
+    const msg = { header: { seq: d.seq++, t_ms: now, boot: 1 }, rf2g4: [], uwb: [] };
+    const byTrack = new Map();
+    for (const m of d.pending) {
+      const key = m.group + ':' + m.tag;
+      if (!byTrack.has(key)) byTrack.set(key, []);
+      byTrack.get(key).push(m);
+    }
+    for (const [key, ms] of byTrack) {
+      const [group, tag] = key.split(':');
+      const tr = { tag: Number(tag), cm: [], age_ms: [], n: [], n_dm: [], raw_cm: [], lost: false };
+      if (!win) {
+        for (const m of ms.slice(-16)) { tr.cm.push(m.cm); tr.age_ms.push(now - m.ts); tr.n.push(1); tr.n_dm.push(m.dm ? 1 : 0); }
+      } else {
+        const wins = new Map();
+        for (const m of ms) { const w = Math.floor(m.ts / win); if (!wins.has(w)) wins.set(w, []); wins.get(w).push(m); }
+        for (const ws of [...wins.values()].slice(-16)) {
+          const v = ws.map(m => m.cm).sort((a, b) => a - b), h = v.length >> 1;
+          tr.cm.push(v.length % 2 ? v[h] : Math.round((v[h - 1] + v[h]) / 2));
+          tr.age_ms.push(now - Math.round(ws.reduce((a, m) => a + m.ts, 0) / ws.length));
+          tr.n.push(ws.length); tr.n_dm.push(ws.filter(m => m.dm).length);
+        }
+      }
+      if (group === 'UWB') { tr.n_dm = []; msg.uwb.push(tr); } else msg.rf2g4.push(tr);
+    }
+    d.pending = [];
+    if (!state.paused && (msg.uwb.length || msg.rf2g4.length)) { take(addr, msg, now); scheduleRender(); }
+  }
+}
+demoStart();
 
 // ---- MQTT ----
 function setConn(text, cls) {
