@@ -80,6 +80,12 @@
   #chart { width:100%; height:420px; background:#ffffff; border-radius:6px; overflow:hidden; }
   @media (min-width:1100px) { #chart { flex:1; height:auto; min-height:420px; } }
   .marks { font:400 12px var(--mono); color:var(--muted); display:flex; flex-direction:column; gap:2px; max-height:120px; overflow-y:auto; }
+  .pgrid { display:grid; grid-template-columns:minmax(0,1fr) 88px 88px; gap:6px 8px; align-items:center; font-size:12px; }
+  .pgrid .h { color:var(--muted); font-weight:500; }
+  .pgrid label { color:var(--fg); }
+  .pgrid input { height:32px; width:100%; padding:0 8px; font:400 13px var(--mono); color:var(--fg); background:var(--bg); border:1px solid var(--line3); border-radius:6px; }
+  .pgrid input.bad { border-color:var(--bad-fg); }
+  .note.ok { color:var(--ok-fg); } .note.bad { color:var(--bad-fg); }
 </style>
 </head>
 <body>
@@ -125,6 +131,20 @@
       </div>
       <div class="marks" id="marks"></div>
     </section>
+    <section aria-labelledby="h-policy">
+      <div class="headrow"><h2 id="h-policy">Policy</h2><small id="policyFor"></small></div>
+      <p class="note" id="policyState"></p>
+      <div class="row">
+        <select class="num" id="preset" aria-label="Fill both sets with a profile of the firmware">
+          <option value="">Profile…</option><option value="anchor">Anchor</option><option value="presence">Presence</option><option value="radio">Radio test</option>
+        </select>
+        <button class="ghost" id="reloadPolicy" type="button" title="Fill with the policy the sensor has in force">From sensor</button>
+      </div>
+      <div class="pgrid" id="policyGrid"></div>
+      <p class="note">Window 0: each measurement. Max, deadband and keepalive 0: off. The cellular set is the one in use; the other waits for a cable or Wi-Fi.</p>
+      <div class="row"><button class="ghost" id="sendPolicy" type="button">Send</button></div>
+      <p class="note" id="policyMsg" role="status"></p>
+    </section>
   </div>
   <div class="col">
     <section id="chartSec" aria-labelledby="h-chart">
@@ -140,7 +160,9 @@
 
 <script>
 // Distances of one sensor, from its uplink/range (ulr.v1.Range of ulr_comm, protobuf), to evaluate the
-// radios: the chart, the statistics of each series, and the exports to analyse them later.
+// radios: the chart, the statistics of each series, and the exports to analyse them later. The Policy block
+// sets the send policy of that sensor (ulr.v1.SensorConfig, retained on its downlink/config) and shows the one
+// in force (ulr.v1.SensorConfigState, retained on its uplink/config).
 // distances.html?sensor=A48C picks the sensor; url, user, pass and site as on rtls.html.
 const $ = id => document.getElementById(id);
 const qs = new URLSearchParams(location.search);
@@ -226,6 +248,99 @@ function decodeRange(bytes) {
       (f === 2 ? msg.rf2g4 : msg.uwb).push(t);
       return true;
     }
+    return false;
+  });
+  return msg;
+}
+
+// ---- protobuf: ulr.v1.SensorConfig (encoded) and ulr.v1.SensorConfigState (decoded), by hand ----
+// A RangePolicy as the page keeps it: { window_ms, send_ms, keepalive_ms, rf2g4: { max_cm, deadband_cm }, uwb }.
+const emptyPolicy = () => ({ window_ms: 0, send_ms: 0, keepalive_ms: 0, rf2g4: { max_cm: 0, deadband_cm: 0 }, uwb: { max_cm: 0, deadband_cm: 0 } });
+function pbVarint(out, v) {
+  while (v > 127) { out.push((v % 128) | 0x80); v = Math.floor(v / 128); }
+  out.push(v);
+}
+// A varint field; a zero is not sent, as every protobuf encoder does.
+function pbUint(out, field, v) { if (v) { pbVarint(out, field * 8); pbVarint(out, v); } }
+function pbSub(out, field, bytes, always) {
+  if (!bytes.length && !always) return;
+  pbVarint(out, field * 8 + 2); pbVarint(out, bytes.length); out.push(...bytes);
+}
+function encodePolicy(p) {
+  const out = [];
+  pbUint(out, 1, p.window_ms); pbUint(out, 2, p.send_ms); pbUint(out, 3, p.keepalive_ms);
+  for (const [field, g] of [[4, p.rf2g4], [5, p.uwb]]) {
+    const gb = [];
+    pbUint(gb, 1, g.max_cm); pbUint(gb, 2, g.deadband_cm);
+    pbSub(out, field, gb, false);   // a group with no limits goes absent
+  }
+  return out;
+}
+function encodeConfig(id, m2m, network) {
+  const out = [];
+  pbUint(out, 1, id);
+  pbSub(out, 2, encodePolicy(m2m), true);
+  pbSub(out, 3, encodePolicy(network), true);
+  return new Uint8Array(out);
+}
+function decodeConfigState(bytes) {
+  const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
+  let i = 0;
+  const varint = end => {
+    let x = 0, m = 1, c;
+    do {
+      if (i >= end) throw new Error('truncated varint');
+      c = b[i++]; x += (c & 0x7f) * m; m *= 128;
+    } while (c & 0x80);
+    return x;
+  };
+  const skip = (wt, end) => {
+    if (wt === 0) varint(end);
+    else if (wt === 1) i += 8;
+    else if (wt === 2) { const l = varint(end); i += l; }
+    else if (wt === 5) i += 4;
+    else throw new Error('wire type ' + wt);
+  };
+  const fields = (end, on) => {
+    while (i < end) {
+      const k = varint(end), f = Math.floor(k / 8), wt = k % 8;
+      if (!on(f, wt, end)) skip(wt, end);
+    }
+    if (i !== end) throw new Error('bad length');
+  };
+  const sub = () => { const l = varint(b.length); return i + l; };
+  const policy = end => {
+    const p = emptyPolicy();
+    fields(end, (f, wt, e) => {
+      if (wt === 0 && f >= 1 && f <= 3) { p[['window_ms', 'send_ms', 'keepalive_ms'][f - 1]] = varint(e); return true; }
+      if (wt === 2 && (f === 4 || f === 5)) {
+        const g = f === 4 ? p.rf2g4 : p.uwb;
+        fields(sub(), (gf, gwt, ge) => {
+          if (gwt !== 0 || gf < 1 || gf > 2) return false;
+          g[gf === 1 ? 'max_cm' : 'deadband_cm'] = varint(ge);
+          return true;
+        });
+        return true;
+      }
+      return false;
+    });
+    return p;
+  };
+  const msg = { header: { seq: 0, t_ms: 0, boot: 0 }, id: 0, result: 0, reason: '', m2m: emptyPolicy(), network: emptyPolicy() };
+  fields(b.length, (f, wt) => {
+    if (f === 1 && wt === 2) {
+      fields(sub(), (hf, hwt, e) => {
+        if (hwt !== 0) return false;
+        const v = varint(e);
+        if (hf === 1) msg.header.seq = v; else if (hf === 2) msg.header.t_ms = v; else if (hf === 3) msg.header.boot = v;
+        return true;
+      });
+      return true;
+    }
+    if (f === 2 && wt === 0) { msg.id = varint(b.length); return true; }
+    if (f === 3 && wt === 0) { msg.result = varint(b.length); return true; }
+    if (f === 4 && wt === 2) { const e = sub(); msg.reason = new TextDecoder().decode(b.subarray(i, e)); i = e; return true; }
+    if ((f === 5 || f === 6) && wt === 2) { const e = sub(); msg[f === 5 ? 'm2m' : 'network'] = policy(e); return true; }
     return false;
   });
   return msg;
@@ -415,6 +530,7 @@ function render() {
   $('pause').textContent = state.paused ? 'Resume' : 'Pause';
   $('pause').classList.toggle('on', state.paused);
   $('marks').innerHTML = state.marks.map(m => `<span>${fmtT(m.ts)}  ${m.m.toFixed(2)} m</span>`).join('');
+  renderPolicy();
 
   // The reference comes from the whole collection, so the values at the edge of the table still have one.
   const all = seriesOf(state.sensor, 0);
@@ -515,6 +631,134 @@ $('refGroup').onchange = setRef;
 $('siteName').textContent = SITE;
 $('topicName').textContent = TOPIC;
 
+// ---- send policy of the sensor in view ----
+const CONFIG_TOPIC = SITE + '/revolog/sensor/+/uplink/config';
+const SETS = [['m2m', 'Cellular'], ['network', 'Cable / Wi-Fi']];
+// Field of a RangePolicy (path), its label, the unit typed in the page and its factor to the unit of the message.
+const PFIELDS = [
+  ['window_ms', 'Window', 's', 1000], ['send_ms', 'Send', 's', 1000], ['keepalive_ms', 'Keepalive', 's', 1000],
+  ['rf2g4.max_cm', '2G4 max', 'm', 100], ['rf2g4.deadband_cm', '2G4 deadband', 'cm', 1],
+  ['uwb.max_cm', 'UWB max', 'm', 100], ['uwb.deadband_cm', 'UWB deadband', 'cm', 1],
+];
+// The profiles of the sensor's config.h.
+const PRESETS = {
+  anchor: { window_ms: 2000, send_ms: 10000 },
+  presence: { window_ms: 10000, send_ms: 10000, keepalive_ms: 60000, rf2g4: { max_cm: 0, deadband_cm: 50 }, uwb: { max_cm: 0, deadband_cm: 20 } },
+  radio: { window_ms: 0, send_ms: 1000 },
+};
+state.configs = {};     // addr -> the last SensorConfigState, with { at } its arrival
+state.policySent = {};  // addr -> id of the config sent, until an answer carries it
+const policyUi = { dirty: false, sensor: null, filledAt: 0 };
+const getPath = (o, path) => path.split('.').reduce((x, k) => (x || {})[k], o) || 0;
+const fieldEl = (set, path) => $(`p-${set}-${path}`);
+
+function buildPolicyGrid() {
+  const cells = ['<span></span>', ...SETS.map(([, label]) => `<span class="h">${label}</span>`)];
+  for (const [path, label, unit] of PFIELDS) {
+    cells.push(`<label for="p-m2m-${path}">${label} (${unit})</label>`);
+    for (const [set, setLabel] of SETS) {
+      cells.push(`<input id="p-${set}-${path}" type="number" min="0" step="any" inputmode="decimal" placeholder="0" aria-label="${label}, ${setLabel}">`);
+    }
+  }
+  $('policyGrid').innerHTML = cells.join('');
+  $('policyGrid').querySelectorAll('input').forEach(el => el.addEventListener('input', () => { policyUi.dirty = true; el.classList.remove('bad'); }));
+}
+function fillPolicy(set, p) {
+  for (const [path, , , factor] of PFIELDS) {
+    const v = getPath(p, path) / factor;
+    fieldEl(set, path).value = v ? String(v) : (path === 'send_ms' || path === 'window_ms' ? '0' : '');
+    fieldEl(set, path).classList.remove('bad');
+  }
+}
+// The policy typed for one set, checked with the rules of the sensor (rangeSrvCheckPolicy()): { p } or { err, path }.
+function readPolicy(set) {
+  const p = emptyPolicy();
+  for (const [path, label, , factor] of PFIELDS) {
+    const raw = fieldEl(set, path).value.trim();
+    const v = raw === '' ? 0 : Number(raw);
+    if (!Number.isFinite(v) || v < 0) return { err: `${label} is not a number`, path };
+    const [a, b] = path.split('.');
+    if (b) p[a][b] = Math.round(v * factor); else p[a] = Math.round(v * factor);
+  }
+  if (p.send_ms < 1000 || p.send_ms > 3600000) return { err: 'Send must be 1 s to 1 h', path: 'send_ms' };
+  if (p.window_ms) {
+    if (p.window_ms < 100) return { err: 'Window must be 0, or 0.1 s or more', path: 'window_ms' };
+    if (p.send_ms % p.window_ms) return { err: 'Send must be a multiple of the window', path: 'send_ms' };
+    if (p.send_ms / p.window_ms > 16) return { err: 'At most 16 windows in one send', path: 'window_ms' };
+  }
+  if (p.keepalive_ms && p.keepalive_ms < p.send_ms) return { err: 'Keepalive must be 0, or not less than the send', path: 'keepalive_ms' };
+  for (const g of ['rf2g4', 'uwb']) {
+    if (p[g].max_cm > 65535) return { err: 'Max must be 655 m or less', path: g + '.max_cm' };
+    if (p[g].deadband_cm > 65535) return { err: 'Deadband must be 65535 cm or less', path: g + '.deadband_cm' };
+  }
+  return { p };
+}
+const RESULT_TEXT = ['factory policy (the profile of its firmware)', 'config %ID in force', 'config %ID refused', 'unreadable config'];
+function renderPolicy() {
+  const s = state.sensor, c = state.configs[s], sent = state.policySent[s];
+  if (s !== policyUi.sensor) { policyUi.sensor = s; policyUi.dirty = false; policyUi.filledAt = 0; }
+  $('policyFor').textContent = s ? 'anchor ' + s : '';
+  let text, cls = '';
+  if (!s) text = 'Pick an anchor above.';
+  else if (!c) text = `No answer from ${s} yet. It answers on its uplink/config when it connects (firmware with the config topic, modem in PPP).`;
+  else {
+    text = RESULT_TEXT[c.result]?.replace('%ID', c.id) ?? 'result ' + c.result;
+    text = text[0].toUpperCase() + text.slice(1) + (c.reason ? ': ' + c.reason : '') + ` · ${fmtT(c.at)}, boot ${c.header.boot}`;
+    cls = c.result === 2 || c.result === 3 ? 'bad' : (c.result === 1 ? 'ok' : '');
+  }
+  if (s && sent && (!c || c.id !== sent)) text += ` · sent config ${sent}, waiting for the answer`;
+  $('policyState').textContent = text;
+  $('policyState').className = 'note ' + cls;
+  // The fields follow the sensor until they are edited
+  if (c && !policyUi.dirty && policyUi.filledAt !== c.at) {
+    fillPolicy('m2m', c.m2m); fillPolicy('network', c.network);
+    policyUi.filledAt = c.at;
+  }
+  $('sendPolicy').textContent = s ? 'Send to ' + s : 'Send';
+  $('sendPolicy').disabled = !s || !client.connected;
+}
+$('preset').onchange = () => {
+  const p = PRESETS[$('preset').value];
+  if (p) {
+    const full = Object.assign(emptyPolicy(), JSON.parse(JSON.stringify(p)));
+    fillPolicy('m2m', full); fillPolicy('network', full);
+    policyUi.dirty = true;
+  }
+  $('preset').value = '';
+};
+$('reloadPolicy').onclick = () => {
+  const c = state.configs[state.sensor];
+  policyUi.dirty = false; policyUi.filledAt = 0;
+  if (c) { fillPolicy('m2m', c.m2m); fillPolicy('network', c.network); policyUi.filledAt = c.at; }
+  $('policyMsg').textContent = '';
+};
+$('sendPolicy').onclick = () => {
+  const s = state.sensor;
+  if (!s) return;
+  const sets = {};
+  for (const [set, label] of SETS) {
+    const r = readPolicy(set);
+    if (r.err) {
+      fieldEl(set, r.path).classList.add('bad');
+      $('policyMsg').textContent = `${label}: ${r.err}.`;
+      $('policyMsg').className = 'note bad';
+      return;
+    }
+    sets[set] = r.p;
+  }
+  // The id grows with the time, never 0: whoever reads the answer knows which config it carries.
+  const id = Math.floor(Date.now() / 1000);
+  const topic = PREFIX + s + '/downlink/config';
+  client.publish(topic, encodeConfig(id, sets.m2m, sets.network), { qos: 1, retain: true }, err => {
+    $('policyMsg').textContent = err ? 'Not sent: ' + err.message : `Config ${id} sent to ${topic}, retained.`;
+    $('policyMsg').className = 'note ' + (err ? 'bad' : '');
+  });
+  state.policySent[s] = id;
+  policyUi.dirty = false;
+  render();
+};
+buildPolicyGrid();
+
 // ---- MQTT ----
 function setConn(text, cls) {
   $('connText').textContent = text;
@@ -523,13 +767,28 @@ function setConn(text, cls) {
 const opts = { clientId: 'web-' + Math.random().toString(16).slice(2, 10), reconnectPeriod: 5000 };
 if (CFG.username) { opts.username = CFG.username; opts.password = CFG.password; }
 const client = mqtt.connect(CFG.url, opts);
-client.on('connect', () => { setConn('Connected to broker', 'ok'); client.subscribe(TOPIC, { qos: 0 }); });
+client.on('connect', () => {
+  setConn('Connected to broker', 'ok');
+  client.subscribe(TOPIC, { qos: 0 });
+  client.subscribe(CONFIG_TOPIC, { qos: 1 });   // retained: the policy in force of every sensor, at once
+  render();
+});
 client.on('reconnect', () => setConn('Reconnecting to broker...', 'err'));
-client.on('offline', () => setConn('No connection to broker', 'err'));
+client.on('offline', () => { setConn('No connection to broker', 'err'); render(); });
 client.on('error', err => setConn('Error: ' + err.message, 'err'));
 client.on('message', (topic, payload) => {
-  if (state.paused || !topic.startsWith(PREFIX)) return;
+  if (!topic.startsWith(PREFIX)) return;
   const sensor = topic.slice(PREFIX.length).split('/')[0].toUpperCase();
+  // The answers of the policy, even while paused: the pause is for the distances
+  if (topic.endsWith('/uplink/config')) {
+    if (!payload.length) return;   // a retained answer cleared
+    try { state.configs[sensor] = Object.assign(decodeConfigState(payload), { at: Date.now() }); }
+    catch (e) { console.warn('config of', sensor, 'not decoded:', e.message); return; }
+    if (state.policySent[sensor] === state.configs[sensor].id) delete state.policySent[sensor];
+    render();
+    return;
+  }
+  if (state.paused) return;
   let msg;
   try { msg = decodeRange(payload); } catch (e) { console.warn('range of', sensor, 'not decoded:', e.message); return; }
   take(sensor, msg, Date.now());
