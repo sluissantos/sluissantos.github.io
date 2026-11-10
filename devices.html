@@ -256,6 +256,53 @@ function remember(d, topic, text) {
   if (d.msgs.length > MSG_MAX) d.msgs.length = MSG_MAX;
 }
 
+// ---- protobuf: ulr.v1.GnssFix (m2m.proto of ulr_comm), by hand, read as the JSON fields of before ----
+// The Revolog devices send it since ulr_comm 2426b2d; the Aura central still sends the JSON, told apart by its '{'.
+function pbFields(b, start, end, on) {
+  let i = start;
+  const varint = () => {
+    let x = 0, m = 1, c;
+    do {
+      if (i >= end) throw new Error('truncated varint');
+      c = b[i++]; x += (c & 0x7f) * m; m *= 128;
+    } while (c & 0x80);
+    return x;
+  };
+  while (i < end) {
+    const k = varint(), f = Math.floor(k / 8), wt = k % 8;
+    if (wt === 0) on(f, varint());
+    else if (wt === 2) { const l = varint(); if (i + l > end) throw new Error('bad length'); on(f, null, i, i + l); i += l; }
+    else if (wt === 1) i += 8;
+    else if (wt === 5) i += 4;
+    else throw new Error('wire type ' + wt);
+  }
+  if (i !== end) throw new Error('bad length');
+}
+const zigzag = v => (v % 2 === 1) ? -(v + 1) / 2 : v / 2;
+function gnssFromProto(payload) {
+  const b = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+  const g = { t_ms: 0, mean: null, last: null, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
+  const position = (s, e) => {
+    const p = { lat: 0, lon: 0 };
+    pbFields(b, s, e, (f, v) => { if (f === 1 && v !== null) p.lat = zigzag(v) / 1e6; else if (f === 2 && v !== null) p.lon = zigzag(v) / 1e6; });
+    return p;
+  };
+  pbFields(b, 0, b.length, (f, v, s, e) => {
+    if (v === null) {
+      if (f === 1) pbFields(b, s, e, (hf, hv) => { if (hf === 2 && hv !== null) g.t_ms = hv; });
+      else if (f === 2) g.mean = position(s, e);
+      else if (f === 3) g.last = position(s, e);
+    } else if (f >= 4 && f <= 10) g[f] = v;
+  });
+  // speed_mean_cm_s, speed_last_cm_s, accuracy, hpa_dm, sats, samples, age_ms
+  const kmh = cms => Math.round(cms * 3.6) / 100;
+  const o = { lat_m: g.mean ? g.mean.lat : null, lon_m: g.mean ? g.mean.lon : null,
+    lat_i: g.last ? g.last.lat : null, lon_i: g.last ? g.last.lon : null, vel_m: kmh(g[4]), vel_i: kmh(g[5]),
+    acc: g[6], hpa: g[7] / 10, nsat: g[8], n: g[9], age_ms: g[10] };
+  if (g.t_ms > 0) o.ts = new Date(g.t_ms - g[10]).toISOString();  // the time of the last sample
+  return o;
+}
+
 function onGnss(d, o) {
   const lat = num(o.lat_m), lon = num(o.lon_m);
   if (lat === null || lon === null || (lat === 0 && lon === 0)) return;
@@ -520,6 +567,15 @@ const SITE_RE = SITE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const GNSS = new RegExp('^' + SITE_RE + '/(aura/central|revolog/sensor|revolog/tagv)/([0-9A-Fa-f]{4})/uplink/gnss$');
 const KIND_OF = { 'aura/central': 'central', 'revolog/sensor': 'sensor', 'revolog/tagv': 'tagv' };
 client.on('message', (topic, payload) => {
+  let g;
+  if ((g = GNSS.exec(topic)) && payload.length > 0 && payload[0] !== 0x7b) {
+    let o; try { o = gnssFromProto(payload); } catch (e) { return; }
+    const d = device(KIND_OF[g[1]], upper(g[2]));
+    remember(d, topic, JSON.stringify(o));
+    onGnss(d, o);
+    render();
+    return;
+  }
   const text = payload.toString();
   let o; try { o = JSON.parse(text); } catch (e) { return; }
   if (!o || typeof o !== 'object') return;
