@@ -140,7 +140,7 @@
       </select>
     </div>
     <div class="scroll" id="devList"></div>
-    <p class="empty" id="noDevices">Nothing heard yet. Only positions: the GNSS of the Aura centrals (<span class="mono">aura/central/+/uplink/gnss</span>), of the Revolog sensors (<span class="mono">revolog/sensor/+/uplink/gnss</span>, or their registered position in the RTLS lists) and of the vehicle tags, when they publish by themselves (<span class="mono">revolog/tagv/+/uplink/gnss</span>) and in their status of format v1, relayed by a sensor or sent by the tag itself (<span class="mono">revolog/sensor/+/uplink/tag/presence</span>, <span class="mono">revolog/tagv/+/uplink/tag/presence</span>).</p>
+    <p class="empty" id="noDevices">Nothing heard yet. Every position that reaches the broker, whatever the path: the GNSS of the Aura centrals, of the Revolog sensors (or their registered position in the RTLS lists) and of the vehicle tags on their own modem (<span class="mono">&lt;platform&gt;/&lt;type&gt;/+/uplink/gnss</span>); the position of the vehicle tags in their status, relayed by a sensor or a central or sent by the tag itself (<span class="mono">uplink/tag/presence</span>, <span class="mono">uplink/tag/status</span>); and the one the messaging manager keeps for each tag and puts in its SOS episodes (<span class="mono">messaging_manager/tag/+</span>, <span class="mono">messaging_manager/sos</span>).</p>
   </section>
 
   <section id="mapSec" aria-labelledby="h-map">
@@ -187,6 +187,11 @@ const TOPIC = {
   // block of format v1, and the sensor relays it raw; on its own modem the tag sends the same block
   sensorPresence: SITE + '/revolog/sensor/+/uplink/tag/presence',
   tagvPresence:   SITE + '/revolog/tagv/+/uplink/tag/presence',
+  // The status in JSON, gnss {lat, lon}: the Aura central, until it moves to the presence
+  tagStatus:      SITE + '/+/+/+/uplink/tag/status',
+  // The messaging manager: the merged state of each tag (gnss, gnss_at) and its SOS episodes (gnss)
+  mgrTag:         SITE + '/messaging_manager/tag/+',
+  mgrSos:         SITE + '/messaging_manager/sos',
   rtlsConfig:  SITE + '/rtls/config',                    // Revolog sensors, registered positions (retained)
 };
 const clientId = 'web-dev-' + Math.random().toString(16).slice(2, 10);
@@ -253,7 +258,7 @@ function toWGS84(o, x, y) {
 const state = { online: false, devices: {}, selected: '' };
 function device(kind, id) {
   const key = kind + ':' + id;
-  return state.devices[key] || (state.devices[key] = { key, kind, id, track: [], msgs: [], avg: { w: 0, lat: 0, lon: 0, k: 0 } });
+  return state.devices[key] || (state.devices[key] = { key, kind, id, track: [], msgs: [], sources: {}, avg: { w: 0, lat: 0, lon: 0, k: 0 } });
 }
 function remember(d, topic, text) {
   d.seen = Date.now();
@@ -348,7 +353,16 @@ function onGnss(d, o) {
   if (lat === null || lon === null || (lat === 0 && lon === 0)) return;
   const fix = { ts: Date.now(), dts: devTime(o.ts), lat, lon, lat_i: num(o.lat_i), lon_i: num(o.lon_i),
     vel_m: num(o.vel_m), vel_i: num(o.vel_i), acc: Math.max(0, Math.min(3, num(o.acc) ?? 0)),
-    hpa: num(o.hpa), nsat: num(o.nsat), n: num(o.n), via: o.via || '' };
+    hpa: num(o.hpa), nsat: num(o.nsat), n: num(o.n), via: o.via || 'own modem (uplink/gnss)', qual: o.qual || '' };
+  // Every path that brought a position, with its last one
+  d.sources[fix.via] = { ts: fix.ts, lat, lon };
+  // The same position again (a keepalive, the manager repeating its state, another path): only the time moves,
+  // and the fix keeps the path that brought it first. A fix of a modem is new when its time is.
+  const last = d.track[d.track.length - 1];
+  if (last && last.lat === lat && last.lon === lon && (fix.qual || last.dts === fix.dts)) {
+    last.ts = fix.ts; d.fix = last;
+    return;
+  }
   d.fix = fix;
   d.track.push(fix);
   if (d.track.length > TRACK_MAX) d.track.splice(0, d.track.length - TRACK_MAX);
@@ -537,9 +551,8 @@ function drawDetail() {
     const f = d.fix, dl = el('dl', 'kv');
     kv(dl, 'Average', mapLink(f.lat, f.lon));
     kv(dl, 'Instant', f.lat_i !== null && f.lon_i !== null ? mapLink(f.lat_i, f.lon_i) : null);
-    kv(dl, 'Source', f.via ? 'status by LoRa, ' + f.via : 'own modem (uplink/gnss)');
-    kv(dl, 'Quality', f.via ? 'medium or better (the tag sends only the mean of a good GNSS window)'
-                             : QUALITY[f.acc] + ' (acc ' + f.acc + ')');
+    kv(dl, 'Source', f.via);
+    kv(dl, 'Quality', f.qual || (QUALITY[f.acc] + ' (acc ' + f.acc + ')'));
     kv(dl, 'Error (HPA)', f.hpa !== null ? f.hpa + ' m' : null);
     kv(dl, 'Satellites', f.nsat);
     kv(dl, 'Samples', f.n);
@@ -547,6 +560,16 @@ function drawDetail() {
     kv(dl, 'Device time', f.dts);
     kv(dl, 'Received', fmtTime(f.ts));
     kv(dl, 'Fixes here', String(d.track.length));
+    const srcs = Object.entries(d.sources).sort((a, b) => b[1].ts - a[1].ts);
+    if (srcs.length > 1 || (srcs.length === 1 && srcs[0][0] !== f.via)) {
+      const ul = el('div');
+      for (const [via, x] of srcs) {
+        const r = el('div', 'note');
+        r.append(el('span', '', via + ' · ' + ago(x.ts) + ' · '), mapLink(x.lat, x.lon));
+        ul.append(r);
+      }
+      kv(dl, 'Paths', ul);
+    }
     if (d.avg.w > 0) {
       const lat = d.avg.lat / d.avg.w, lon = d.avg.lon / d.avg.w;
       kv(dl, 'Long average', mapLink(lat, lon));
@@ -597,8 +620,8 @@ const client = mqtt.connect(CFG.url, opts);
 client.on('connect', () => {
   state.online = true;
   setConn('Connected to broker', 'ok');
-  client.subscribe([TOPIC.centralGnss, TOPIC.sensorGnss, TOPIC.tagvGnss, TOPIC.sensorPresence, TOPIC.tagvPresence],
-    { qos: 0 });
+  client.subscribe([TOPIC.centralGnss, TOPIC.sensorGnss, TOPIC.tagvGnss, TOPIC.sensorPresence, TOPIC.tagvPresence,
+    TOPIC.tagStatus, TOPIC.mgrTag, TOPIC.mgrSos], { qos: 0 });
   client.subscribe(TOPIC.rtlsConfig, { qos: 1 });
 });
 client.on('reconnect', () => { state.online = false; setConn('Reconnecting to broker...', 'err'); });
@@ -609,6 +632,19 @@ client.on('error', err => { setConn('Error: ' + err.message, 'err'); });
 const SITE_RE = SITE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const GNSS = new RegExp('^' + SITE_RE + '/(aura/central|revolog/sensor|revolog/tagv)/([0-9A-Fa-f]{4})/uplink/gnss$');
 const KIND_OF = { 'aura/central': 'central', 'revolog/sensor': 'sensor', 'revolog/tagv': 'tagv' };
+const QUAL_BLOCK = 'medium or better (the tag sends only the mean of a good GNSS window)';
+const QUAL_NONE = 'not sent with it (the position of a status: medium or better)';
+const STATUS = new RegExp('^' + SITE_RE + '/(aura/central|revolog/sensor|revolog/tagv)/([0-9A-Fa-f]{4})/uplink/tag/status$');
+const MGR_TAG = new RegExp('^' + SITE_RE + '/messaging_manager/tag/([0-9A-Fa-f]{4})$');
+// A position of a tag in JSON, {gnss: {lat, lon}}: from a status, the state of the manager or an SOS episode
+function onTagJson(topic, o, tag, via, ts) {
+  const gn = o && o.gnss;
+  if (!gn || num(gn.lat) === null || num(gn.lon) === null) return false;
+  const d = device('tagv', upper(tag));
+  remember(d, topic, JSON.stringify(o));
+  onGnss(d, { lat_m: gn.lat, lon_m: gn.lon, acc: 2, via, qual: QUAL_NONE, ts });
+  return true;
+}
 const PRESENCE = new RegExp('^' + SITE_RE + '/revolog/(sensor|tagv)/([0-9A-Fa-f]{4})/uplink/tag/presence$');
 const hex4 = v => v.toString(16).toUpperCase().padStart(4, '0');
 client.on('message', (topic, payload) => {
@@ -621,10 +657,11 @@ client.on('message', (topic, payload) => {
       if (!k || k.lat === null || (k.lat === 0 && k.lon === 0)) continue;
       // a position in a status is a vehicle tag's: the ULR tag has no GNSS
       const d = device('tagv', hex4(st.tag));
-      const via = g[1] === 'sensor' ? 'relayed by the sensor ' + upper(g[2]) : 'on its own modem';
+      const via = g[1] === 'sensor' ? 'status by LoRa, relayed by the sensor ' + upper(g[2])
+                                    : 'status on its own modem (uplink/tag/presence)';
       remember(d, topic, JSON.stringify({ via, age_ms: st.age_ms, lat: k.lat, lon: k.lon, battery: k.battery,
         moving: k.moving, charging: k.charging }));
-      onGnss(d, { lat_m: k.lat, lon_m: k.lon, acc: 2, via,
+      onGnss(d, { lat_m: k.lat, lon_m: k.lon, acc: 2, via, qual: QUAL_BLOCK,
         ts: p.t_ms > 0 ? new Date(p.t_ms - st.age_ms).toISOString() : '' });
       any = true;
     }
@@ -645,6 +682,14 @@ client.on('message', (topic, payload) => {
   let m;
   if (topic === TOPIC.rtlsConfig) {
     onRtlsConfig(o);
+  } else if ((m = STATUS.exec(topic))) {
+    if (!onTagJson(topic, o, o.tag_addr, 'status relayed by the ' + KIND_OF[m[1]] + ' ' + upper(m[2]) + ' (JSON)', o.ts)) return;
+  } else if ((m = MGR_TAG.exec(topic))) {
+    if (!onTagJson(topic, o, o.tag_addr || m[1], 'messaging manager, state of the tag (via ' +
+        (Array.isArray(o.anchors) && o.anchors.length ? o.anchors.join(', ') : 'no anchor now') + ')', o.gnss_at)) return;
+  } else if (topic === TOPIC.mgrSos) {
+    if (!onTagJson(topic, o, o.tag_addr, 'messaging manager, SOS episode ' + (o.session ?? '') + ' (' + (o.state || '') + ')',
+        o.at)) return;
   } else if ((m = GNSS.exec(topic))) {
     const d = device(KIND_OF[m[1]], upper(m[2]));
     remember(d, topic, text);
