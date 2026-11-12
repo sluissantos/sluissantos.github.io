@@ -187,6 +187,7 @@ const TOPIC = {
   // block of format v1, and the sensor relays it raw; on its own modem the tag sends the same block
   sensorPresence: SITE + '/revolog/sensor/+/uplink/tag/presence',
   tagvPresence:   SITE + '/revolog/tagv/+/uplink/tag/presence',
+  modemInfo:      SITE + '/+/+/+/uplink/m2m-info',   // the state of the modem (ulr.v1.ModemInfo): signal, IP
   // The status in JSON, gnss {lat, lon}: the Aura central, until it moves to the presence
   tagStatus:      SITE + '/+/+/+/uplink/tag/status',
   // The messaging manager: the merged state of each tag (gnss, gnss_at) and its SOS episodes (gnss)
@@ -289,6 +290,28 @@ function pbFields(b, start, end, on) {
   if (i !== end) throw new Error('bad length');
 }
 const zigzag = v => (v % 2 === 1) ? -(v + 1) / 2 : v / 2;
+// ---- protobuf: ulr.v1.ModemInfo (m2m.proto): every 5 min on the sensor, each network window on the tagv ----
+// header (t_ms), ip (4 bytes), csq, access, imei (not shown), and the serving cell when measured: rsrp, rsrq, sinr
+function modemFromProto(payload) {
+  const b = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
+  const m = { t_ms: 0, ip: '', csq: null, access: 0, rsrp: null, rsrq: null, sinr: null };
+  pbFields(b, 0, b.length, (f, v, s, e) => {
+    if (f === 1 && v === null) pbFields(b, s, e, (hf, hv) => { if (hf === 2 && hv !== null) m.t_ms = hv; });
+    else if (f === 2 && v === null && e - s === 4) m.ip = Array.from(b.slice(s, e)).join('.');
+    else if (f === 3 && v !== null) m.csq = v;
+    else if (f === 4 && v !== null) m.access = v;
+    else if (f === 6 && v !== null) m.rsrp = zigzag(v);
+    else if (f === 7 && v !== null) m.rsrq = zigzag(v);
+    else if (f === 8 && v !== null) m.sinr = zigzag(v);
+  });
+  return m;
+}
+const ACCESS = ['unknown', 'LTE Cat-M1', 'NB-IoT'];
+// The quality of the serving cell in words, from RSRP (dBm), the usual LTE bands
+const rsrpWord = r => r === null ? '' : r >= -90 ? 'good' : r >= -105 ? 'fair' : r >= -120 ? 'poor' : 'very poor';
+const MODEM = new RegExp('^' + SITE_RE + '/(aura/central|revolog/sensor|revolog/tagv)/([0-9A-Fa-f]{4})/uplink/m2m-info$');
+const MODEM_KIND = { 'aura/central': 'central', 'revolog/sensor': 'sensor', 'revolog/tagv': 'tagv' };
+
 function gnssFromProto(payload) {
   const b = payload instanceof Uint8Array ? payload : new Uint8Array(payload);
   const g = { t_ms: 0, mean: null, last: null, 4: 0, 5: 0, 6: 0, 7: 0, 8: 0, 9: 0, 10: 0 };
@@ -396,7 +419,7 @@ function onRtlsConfig(o) {
   }
   for (const k of Object.keys(state.devices)) {
     const d = state.devices[k];
-    if (d.kind === 'sensor' && !d.reg && !d.fix) delete state.devices[k];
+    if (d.kind === 'sensor' && !d.reg && !d.fix && !d.modem) delete state.devices[k];
   }
 }
 // a registered sensor stays where it was surveyed; its own GNSS shows in the details
@@ -534,6 +557,19 @@ function drawDetail() {
   }
   c.append(head);
 
+  if (d.modem) {
+    const m = d.modem, dl = el('dl', 'kv');
+    c.append(el('h3', '', 'Modem signal'));
+    kv(dl, 'RSRP', m.rsrp !== null ? m.rsrp + ' dBm (' + rsrpWord(m.rsrp) + ')' : 'not measured');
+    kv(dl, 'RSRQ', m.rsrq !== null ? m.rsrq + ' dB' : 'not measured');
+    kv(dl, 'SINR', m.sinr !== null ? m.sinr + ' dB' : 'not measured');
+    kv(dl, 'CSQ', m.csq !== null && m.csq !== 99 ? m.csq + ' (' + (-113 + 2 * m.csq) + ' dBm)' : 'not measured');
+    kv(dl, 'Access', ACCESS[m.access] || String(m.access));
+    kv(dl, 'IP', m.ip || 'no data link');
+    kv(dl, 'Received', ago(m.rx));
+    c.append(dl);
+  }
+
   if (d.kind === 'sensor' && d.reg) {
     const r = d.reg;
     c.append(el('h3', '', 'Registered'));
@@ -625,7 +661,7 @@ client.on('connect', () => {
   state.online = true;
   setConn('Connected to broker', 'ok');
   client.subscribe([TOPIC.centralGnss, TOPIC.sensorGnss, TOPIC.tagvGnss, TOPIC.sensorPresence, TOPIC.tagvPresence,
-    TOPIC.tagStatus, TOPIC.mgrTag, TOPIC.mgrSos], { qos: 0 });
+    TOPIC.tagStatus, TOPIC.mgrTag, TOPIC.mgrSos, TOPIC.modemInfo], { qos: 0 });
   client.subscribe(TOPIC.rtlsConfig, { qos: 1 });
 });
 client.on('reconnect', () => { state.online = false; setConn('Reconnecting to broker...', 'err'); });
@@ -671,6 +707,15 @@ client.on('message', (topic, payload) => {
       any = true;
     }
     if (any) render();
+    return;
+  }
+  if ((g = MODEM.exec(topic))) {
+    let m; try { m = modemFromProto(payload); } catch (e) { return; }
+    const d = device(MODEM_KIND[g[1]], upper(g[2]));
+    m.rx = Date.now();
+    d.modem = m;
+    remember(d, topic, JSON.stringify({ rsrp: m.rsrp, rsrq: m.rsrq, sinr: m.sinr, csq: m.csq, access: ACCESS[m.access], ip: m.ip }));
+    render();
     return;
   }
   if ((g = GNSS.exec(topic)) && payload.length > 0 && payload[0] !== 0x7b) {
