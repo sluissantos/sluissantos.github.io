@@ -320,11 +320,15 @@ function gnssFromProto(payload) {
 function int24(b, i) { const v = (b[i] << 16) | (b[i + 1] << 8) | b[i + 2]; return (v & 0x800000) ? v - 0x1000000 : v; }
 function blockFromBytes(b, s, e) {
   if (e - s < 5 || b[s] !== 0x01) return null;   // only format v1
-  const o = { battery: b[s + 3], moving: !!(b[s + 2] & 1), charging: !!(b[s + 1] & 2), risk: b[s + 4], lat: null, lon: null };
+  const o = { battery: b[s + 3], moving: !!(b[s + 2] & 1), charging: !!(b[s + 1] & 2), risk: b[s + 4], lat: null, lon: null,
+    acc: null, hpa: null };
+  // the position: lat and lon int24, then a byte with the accuracy (bits 7-6) and the HPA in metres (bits 5-0)
   pbFields(b, s + 5, e, (f, v, ps, pe) => {
-    if (f === 3 && v === null && pe - ps === 6) {
+    if (f === 3 && v === null && pe - ps === 7) {
       o.lat = Math.round(int24(b, ps) * 90 * 1e6 / 8388608) / 1e6;
       o.lon = Math.round(int24(b, ps + 3) * 180 * 1e6 / 8388608) / 1e6;
+      o.acc = b[ps + 6] >> 6;
+      o.hpa = b[ps + 6] & 63;
     }
   });
   return o;
@@ -632,7 +636,6 @@ client.on('error', err => { setConn('Error: ' + err.message, 'err'); });
 const SITE_RE = SITE.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 const GNSS = new RegExp('^' + SITE_RE + '/(aura/central|revolog/sensor|revolog/tagv)/([0-9A-Fa-f]{4})/uplink/gnss$');
 const KIND_OF = { 'aura/central': 'central', 'revolog/sensor': 'sensor', 'revolog/tagv': 'tagv' };
-const QUAL_BLOCK = 'medium or better (the tag sends only the mean of a good GNSS window)';
 const QUAL_NONE = 'not sent with it (the position of a status: medium or better)';
 const STATUS = new RegExp('^' + SITE_RE + '/(aura/central|revolog/sensor|revolog/tagv)/([0-9A-Fa-f]{4})/uplink/tag/status$');
 const MGR_TAG = new RegExp('^' + SITE_RE + '/messaging_manager/tag/([0-9A-Fa-f]{4})$');
@@ -642,7 +645,9 @@ function onTagJson(topic, o, tag, via, ts) {
   if (!gn || num(gn.lat) === null || num(gn.lon) === null) return false;
   const d = device('tagv', upper(tag));
   remember(d, topic, JSON.stringify(o));
-  onGnss(d, { lat_m: gn.lat, lon_m: gn.lon, acc: 2, via, qual: QUAL_NONE, ts });
+  const q = num(gn.acc) !== null;   // the manager passes on the quality of the status block
+  onGnss(d, { lat_m: gn.lat, lon_m: gn.lon, acc: q ? gn.acc : 2, hpa: q ? num(gn.hpa_m) : null, via,
+    qual: q ? '' : QUAL_NONE, ts });
   return true;
 }
 const PRESENCE = new RegExp('^' + SITE_RE + '/revolog/(sensor|tagv)/([0-9A-Fa-f]{4})/uplink/tag/presence$');
@@ -659,9 +664,9 @@ client.on('message', (topic, payload) => {
       const d = device('tagv', hex4(st.tag));
       const via = g[1] === 'sensor' ? 'status by LoRa, relayed by the sensor ' + upper(g[2])
                                     : 'status on its own modem (uplink/tag/presence)';
-      remember(d, topic, JSON.stringify({ via, age_ms: st.age_ms, lat: k.lat, lon: k.lon, battery: k.battery,
-        moving: k.moving, charging: k.charging }));
-      onGnss(d, { lat_m: k.lat, lon_m: k.lon, acc: 2, via, qual: QUAL_BLOCK,
+      remember(d, topic, JSON.stringify({ via, age_ms: st.age_ms, lat: k.lat, lon: k.lon, acc: k.acc, hpa_m: k.hpa,
+        battery: k.battery, moving: k.moving, charging: k.charging }));
+      onGnss(d, { lat_m: k.lat, lon_m: k.lon, acc: k.acc, hpa: k.hpa, via, qual: '',
         ts: p.t_ms > 0 ? new Date(p.t_ms - st.age_ms).toISOString() : '' });
       any = true;
     }
